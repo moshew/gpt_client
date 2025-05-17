@@ -1,0 +1,276 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply antialiased text-gray-900 text-base;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Inter', sans-serif;
+    font-size: 1.125rem;
+    font-weight: 600;
+  }
+}
+
+/* Reset specific element styles to ensure consistency */
+.user-message, .assistant-message {
+  box-sizing: border-box;
+}
+
+/* User message styling */
+.user-message {
+  background-color: #f3f4f6 !important; /* Use !important to override any conflicting styles */
+  border-radius: 1rem;
+  margin-bottom: 1rem;
+}
+
+/* Assistant message styling */
+.assistant-message {
+  margin-top: -1.5rem;
+
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
+
+/* Server response styles */
+.container {
+  @apply bg-white p-4 rounded-lg shadow-sm;
+  font-family: "Noto Sans Hebrew", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  font-size: 18px;
+}
+
+.question {
+  @apply text-xl font-bold mb-3;
+}
+
+.question strong {
+  @apply text-orange-600;
+}
+
+.context {
+  @apply text-gray-600 italic mb-3;
+}
+
+.context strong {
+  @apply text-orange-600;
+}
+
+.answer {
+  @apply leading-relaxed;
+  direction: rtl;
+  text-align: right;
+  line-height: 1.75;
+  font-size: 18px;
+}
+
+.answer strong {
+  @apply text-orange-600;
+}
+
+/* Ensure proper Hebrew text rendering */
+[lang="he"],
+[dir="rtl"],
+.answer {
+  font-family: "Noto Sans Hebrew", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 18px;
+}
+
+/* Code block styling */
+pre {
+  direction: ltr !important;
+  text-align: left !important;
+  background: #f5f5f5 !important;
+  border-radius: 6px !important;
+  padding: 16px !important;
+  position: relative !important;
+  overflow-x: auto !important;
+  margin: 1em 0 !important;
+  color: #000000 !important;
+}
+
+/* Inline code styling */
+code {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+  padding: 0.2em 0.4em !important;
+  font-size: 0.9em !important;
+  background: #f5f5f5 !important;
+  border-radius: 3px !important;
+  white-space: pre !important;
+  direction: ltr !important;
+  text-align: left !important;
+  color: #000000 !important;
+}
+
+pre code {
+  padding: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  white-space: pre !important;
+}
+
+/* RTL specific styles */
+[dir="rtl"] pre,
+[dir="rtl"] code,
+[dir="rtl"] .hljs {
+  direction: ltr !important;
+  text-align: left !important;
+}
+
+/* Code block hover effects */
+.relative.group:hover .opacity-0 {
+  opacity: 1 !important;
+}
+
+/* RTL content adjustments */
+.markdown-content h1, 
+.markdown-content h2, 
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6,
+.markdown-content p,
+.markdown-content ul,
+.markdown-content ol {
+  direction: inherit !important;
+  text-align: inherit !important;
+}
+
+/* Tooltip styles */
+.tooltip-wrapper {
+  @apply relative inline-block;
+}
+
+.tooltip {
+  @apply invisible absolute z-[100] px-2 py-1 text-xs text-white bg-gray-800 rounded whitespace-nowrap transition-opacity duration-200;
+  left: 50%;
+  transform: translateX(-50%);
+  top: calc(100% + 5px);
+}
+
+.tooltip::before {
+  content: '';
+  @apply absolute w-0 h-0;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+}
+
+/* Default tooltip (pointing down) */
+.tooltip {
+  top: calc(100% + 5px);
+}
+
+.tooltip::before {
+  top: -4px;
+  border-bottom: 4px solid #1f2937;
+}
+
+/* Upload button tooltip (pointing up) */
+.upload-button .tooltip {
+  bottom: calc(100% + 5px);
+  top: auto;
+}
+
+.upload-button .tooltip::before {
+  bottom: -4px;
+  top: auto;
+  border-top: 4px solid #1f2937;
+  border-bottom: none;
+}
+
+/* Sidebar toggle tooltip (pointing down, offset) */
+.tooltip-wrapper:first-child .tooltip {
+  left: 8px;
+  transform: none;
+}
+
+.tooltip-wrapper:first-child .tooltip::before {
+  left: 12px;
+  transform: none;
+}
+
+.tooltip-wrapper:hover .tooltip {
+  @apply visible opacity-100;
+}
+
+/* Button hover styles */
+.hover-button {
+  @apply relative p-2 hover:bg-gray-100 rounded-lg transition-colors;
+}
+
+.hover-button::after {
+  content: '';
+  @apply absolute inset-0 bg-black opacity-0 transition-opacity duration-200 rounded-lg;
+}
+
+.hover-button:hover::after {
+  @apply opacity-5;
+}
+
+/* Streaming content styles */
+.streaming-content {
+  position: relative;
+}
+
+/* File chip styles */
+.file-chip {
+  @apply inline-flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-1.5 text-sm text-gray-700;
+  transition: all 0.2s ease-in-out;
+}
+
+.file-chip button {
+  @apply text-gray-500 hover:text-gray-700 transition-colors;
+}
+
+.file-chip:hover {
+  @apply bg-gray-200;
+}
+
+.sidebar button[class*="hover:bg-gray-200"] {
+  position: relative;
+  z-index: 1;
+}
+
+.sidebar button[class*="hover:bg-gray-200"]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -8px;
+  right: -8px;
+  bottom: 0;
+  background-color: transparent;
+  border-radius: 8px;
+  z-index: -1;
+  transition: background-color 0.2s ease;
+}
+
+.sidebar button[class*="hover:bg-gray-200"]:hover {
+  background-color: transparent !important;
+}
+
+.sidebar button[class*="hover:bg-gray-200"]:hover::before {
+  background-color: #e5e7eb; /* This is Tailwind's bg-gray-200 */
+}
