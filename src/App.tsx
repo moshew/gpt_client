@@ -1,4 +1,4 @@
-import React, { useState, useRef, createContext, useContext } from 'react';
+import React, { useState, useRef, createContext, useContext, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { ChatArea } from './components/ChatArea';
@@ -241,6 +241,11 @@ function App() {
       setDroppedFiles([]);
     }
   }, [droppedFiles]);
+
+  // Store selected model in localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('selectedModel', selectedModel);
+  }, [selectedModel]);
 
   return (
     <div className="flex h-screen bg-white relative">

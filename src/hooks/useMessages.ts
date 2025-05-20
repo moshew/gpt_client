@@ -77,6 +77,27 @@ export function useMessages({
   const isLoading = activeChat ? !!loadingChats[activeChat] : false;
   const uploadStatus = activeChat ? (uploadStatusMap[activeChat] || { isUploading: false, isIndexing: false }) : { isUploading: false, isIndexing: false };
 
+  // Add selectedModel to the component state
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    // Try to get the model from App component through localStorage or default to GPT-4.1
+    return localStorage.getItem('selectedModel') || 'GPT-4.1';
+  });
+  
+  // Update selectedModel when it changes in the App component
+  useEffect(() => {
+    const handleModelChange = (event: StorageEvent) => {
+      if (event.key === 'selectedModel' && event.newValue) {
+        setSelectedModel(event.newValue);
+      }
+    };
+    
+    window.addEventListener('storage', handleModelChange);
+    
+    return () => {
+      window.removeEventListener('storage', handleModelChange);
+    };
+  }, []);
+
   // Reset state for a new chat
   const resetState = () => {
     setHasStartedResponse(false);
@@ -727,7 +748,10 @@ export function useMessages({
       }
     };
     
-    eventSource.onerror = () => {
+    eventSource.onerror = (error) => {
+      console.warn('EventSource encountered an error:', error);
+      
+      // Always clean up resources when an error occurs
       eventSource.close();
       delete eventSourcesRef.current[chatId];
       
@@ -736,12 +760,24 @@ export function useMessages({
         [chatId]: false
       }));
       
-      updateMessageInChat(chatId, messageId, {
-        content: 'Sorry, I encountered an error while processing your request.',
-        status: 'complete'
-      });
-      
-      delete pendingMessagesRef.current[chatId];
+      // Only update the message if it hasn't already been completed
+      if (pendingMessagesRef.current[chatId] === messageId) {
+        // Get current message content
+        const currentMessage = messagesMap[chatId]?.find(msg => msg.id === messageId);
+        const currentContent = currentMessage?.content || '';
+        
+        // Add appropriate error message based on content
+        const errorMessage = currentContent.trim() 
+          ? `${currentContent}\n\n(The connection was interrupted. The response may be incomplete.)`
+          : 'Sorry, I encountered an error while processing your request.';
+          
+        updateMessageInChat(chatId, messageId, {
+          content: errorMessage,
+          status: 'complete'
+        });
+        
+        delete pendingMessagesRef.current[chatId];
+      }
       
       if (newChatIds.has(chatId)) {
         setNewChatIds(prev => {
@@ -750,6 +786,11 @@ export function useMessages({
           return updated;
         });
       }
+    };
+    
+    // Add an 'open' handler to confirm the connection was established
+    eventSource.onopen = () => {
+      console.log('EventSource connection established for chat', chatId);
     };
   };
 
@@ -816,6 +857,9 @@ export function useMessages({
       const url = new URL(baseUrl);
       url.searchParams.append('chat_id', chatId);
       url.searchParams.append('token', user?.token || '');
+      
+      // Add the deployment_name parameter with the selected model
+      url.searchParams.append('deployment_name', selectedModel);
       
       if (isLongMessage && sessionId) {
         url.searchParams.append('session_id', sessionId);
@@ -1011,6 +1055,7 @@ export function useMessages({
       formData.append('quality', options.quality);
       formData.append('style', options.style);
       formData.append('token', user.token);
+      formData.append('deployment_name', selectedModel);
       
       if (options.image) {
         formData.append('image', options.image);
