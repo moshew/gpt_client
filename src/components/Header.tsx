@@ -1,5 +1,5 @@
 import React from 'react';
-import { UserCircle2, X, LogOut, Loader2 } from 'lucide-react';
+import { UserCircle2, X, LogOut, Loader2, Eye } from 'lucide-react';
 import { SidebarToggle } from './icons/SidebarToggle';
 import { NewChatIcon } from './icons/NewChatIcon';
 import { User } from '../types';
@@ -20,6 +20,9 @@ interface HeaderProps {
   onLogin: () => void;
   onLogout: () => void;
   isAuthenticating?: boolean;
+  isHTML?: boolean;
+  isPreviewMode?: boolean;
+  onTogglePreview?: () => void;
 }
 
 export function Header({ 
@@ -37,7 +40,10 @@ export function Header({
   user,
   onLogin,
   onLogout,
-  isAuthenticating = false
+  isAuthenticating = false,
+  isHTML = false,
+  isPreviewMode = false,
+  onTogglePreview
 }: HeaderProps) {
   const models = [
     { id: 'gpt-4', name: 'GPT-4 (Recommended)' },
@@ -118,7 +124,23 @@ export function Header({
           </div>
         )}
         {showAvatar && (
-          <div className="flex items-center">
+          <div className="flex items-center gap-5">
+            {isCodeEditorOpen && isHTML && onTogglePreview && (
+              <button
+                onClick={onTogglePreview}
+                className={`
+                  flex items-center gap-1 px-5 py-2 rounded-full border
+                  transition-colors font-medium text-sm
+                  ${isPreviewMode 
+                    ? 'bg-gray-200 border-gray-300 text-gray-800 hover:bg-gray-100' 
+                    : 'bg-transparent border-gray-300 text-gray-700 hover:bg-gray-100'}
+                `}
+              >
+                <Eye size={16} />
+                <span>{isPreviewMode ? 'Code' : 'Preview'}</span>
+              </button>
+            )}
+            
             {!user ? (
               <button
                 onClick={handleLoginClick}

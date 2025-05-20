@@ -223,7 +223,7 @@ export function ChatInput({
   );
 
   return (
-    <div className={`flex-none bg-gradient-to-t from-white via-white pb-8`}>
+    <div className={`flex-none bg-gradient-to-t from-white via-white pb-8 max-h-fit overflow-hidden`}>
       <form 
         ref={formRef}
         onSubmit={handleSubmit} 

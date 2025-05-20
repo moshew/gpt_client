@@ -24,7 +24,7 @@ export function ChatMessage({ message, onCopyCode, onEditCode }: ChatMessageProp
       const validLanguage = hljs.getLanguage(language || '') ? language : 'plaintext';
       const highlightedCode = hljs.highlight(code, { language: validLanguage || 'plaintext' }).value;
       
-      return `<div class="code-block-wrapper relative"><pre class="hljs-pre" data-language="${validLanguage}"><code class="hljs language-${validLanguage}">${highlightedCode}</code></pre><div class="code-actions absolute right-2 top-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+      return `<div class="code-block-wrapper relative"><pre class="hljs-pre" data-language="${validLanguage}"><code class="hljs language-${validLanguage}">${highlightedCode}</code></pre><div class="code-actions absolute right-2 top-2 flex gap-2 opacity-100 z-10">
         <button class="p-1 rounded bg-gray-700 hover:bg-gray-600 text-white copy-btn" title="העתק קוד">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
         </button>

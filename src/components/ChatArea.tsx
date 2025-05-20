@@ -131,7 +131,7 @@ export function ChatArea({
 
   useEffect(() => {
     const calculateMinHeight = () => {
-      if (!chatRef.current || messages.length === 0 || !isLoading) return;
+      if (!chatRef.current || messages.length === 0) return;
       
       const headerElement = document.querySelector('header');
       const chatInputElement = document.querySelector('form');

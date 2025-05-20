@@ -69,7 +69,7 @@ export function useMessages({
   }>>({});
   
   const eventSourcesRef = useRef<Record<string, EventSource>>({});
-  const pendingMessagesRef = useRef<Record<string, { user: string; assistant: string }>>({});
+  const pendingMessagesRef = useRef<Record<string, string>>({});
   const [newChatIds, setNewChatIds] = useState<Set<string>>(new Set());
   const [chatsToLoad, setChatsToLoad] = useState<Set<string>>(new Set());
 
@@ -377,6 +377,382 @@ export function useMessages({
     }
   };
 
+  // Upload files to chat and return uploaded filenames
+  const uploadFilesToChat = async (chatId: string, files: File[]): Promise<{uploaded: boolean, filenames: ChatFile[]}> => {
+    if (!user?.token) {
+      throw new Error('User not authenticated');
+    }
+  
+    setUploadStatusMap(prev => ({
+      ...prev,
+      [chatId]: { isUploading: true, isIndexing: false }
+    }));
+  
+    try {
+      // Get current tool state to determine file type
+      const currentState = toolStatesMap[chatId] || toolStatesMap['new'] || defaultToolState;
+      const fileType = currentState.isCodeAnalysisEnabled ? "code" : "doc";
+  
+      const formData = new FormData();
+      files.forEach(file => {
+        formData.append('files', file);
+      });
+      
+      formData.append('file_type', fileType);
+  
+      const uploadResponse = await fetch(`${config.apiBaseUrl}/upload_files/${chatId}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        },
+        body: formData
+      });
+  
+      if (!uploadResponse.ok) {
+        const errorText = await uploadResponse.text();
+        console.error('Upload error response:', errorText);
+        throw new Error(`Failed to upload documents: ${uploadResponse.status} ${uploadResponse.statusText}`);
+      }
+      
+      const uploadData = await uploadResponse.json();
+      
+      // Convert string filenames to ChatFile objects if necessary
+      const docFiles = (uploadData.doc_files || []).map((filename: string) => ({ 
+        id: filename, 
+        file_name: filename,
+        file_type: 'doc'
+      }));
+      
+      const codeFiles = (uploadData.code_files || []).map((filename: string) => ({ 
+        id: filename, 
+        file_name: filename,
+        file_type: 'code'
+      }));
+      
+      const chatFiles: ChatFile[] = [...docFiles, ...codeFiles];
+  
+      // Only index files if they are documents (not code)
+      if (fileType === "doc") {
+        setUploadStatusMap(prev => ({
+          ...prev,
+          [chatId]: { isUploading: false, isIndexing: true }
+        }));
+
+        const indexResponse = await fetch(`${config.apiBaseUrl}/index_files/${chatId}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${user.token}`,
+            'Content-Type': 'application/json'
+          },
+        });
+  
+        if (!indexResponse.ok) {
+          const errorText = await indexResponse.text();
+          console.error('Indexing error response:', errorText);
+          throw new Error(`Failed to index documents: ${indexResponse.status} ${indexResponse.statusText}`);
+        }
+      }
+      
+      return { uploaded: true, filenames: chatFiles };
+    } catch (error) {
+      console.error('Error handling files:', error);
+      setUploadStatusMap(prev => ({
+        ...prev,
+        [chatId]: { isUploading: false, isIndexing: false, error: 'Failed to process documents' }
+      }));
+      throw error;
+    } finally {
+      setUploadStatusMap(prev => ({
+        ...prev,
+        [chatId]: { isUploading: false, isIndexing: false }
+      }));
+    }
+  };
+
+  // Main submit handler for user input
+  const handleSubmit = async (input: string, files?: File[], imageOptions?: ImageOptions, kbOptions?: KnowledgeBaseOptions) => {
+    if (!user) return;
+    if (!input?.trim() && (!files || files.length === 0)) return;
+    if (activeChat && (loadingChats[activeChat] || pendingMessagesRef.current[activeChat])) return;
+  
+    setHasStartedResponse(false);
+  
+    const userMessage = input.trim();
+    let targetChatId: string;
+    
+    try {
+      // Identify which tool state to use - for new chats, use the 'new' state
+      // This needs to happen before we create a new chat to ensure we correctly identify image creation mode
+      const currentToolState = activeChat 
+        ? (toolStatesMap[activeChat] || defaultToolState) 
+        : (toolStatesMap['new'] || defaultToolState);
+      
+      // Check if we're in image creator mode BEFORE we create the chat
+      const isInImageCreatorMode = currentToolState.isImageCreatorEnabled && imageOptions && input.trim();
+    
+      if (activeChat === null) {
+        const newChat = await createNewChat();
+        if (!newChat) {
+          console.error('Failed to create new chat');
+          return;
+        }
+        
+        targetChatId = newChat.id;
+        setActiveChat(targetChatId);
+        
+        // Add the chat ID to the new chat IDs set to track it
+        setNewChatIds(prev => {
+          const updated = new Set(prev);
+          updated.add(targetChatId);
+          return updated;
+        });
+        
+        const newChatToolState = toolStatesMap['new'] || {...defaultToolState};
+        setToolStatesMap(prev => ({
+          ...prev,
+          [targetChatId]: {...newChatToolState}
+        }));
+        
+        updateChatName(targetChatId, userMessage).catch(error => {
+          console.error('Error updating chat name:', error);
+        });
+      } else {
+        targetChatId = activeChat;
+      }
+      
+      // IMPORTANT: Set hasStartedResponse to true after creating a chat, so the UI shows the chat immediately
+      // This ensures the messages don't disappear while waiting for the response
+      setHasStartedResponse(true);
+
+      // Separate image files from other files
+      const imageFiles = files?.filter(file => file.type.startsWith('image/')) || [];
+      const nonImageFiles = files?.filter(file => !file.type.startsWith('image/')) || [];
+
+      // Create separate user messages for image files (displayed as base64)
+      const imageMessages: Message[] = [];
+      if (imageFiles.length > 0) {
+        for (const imageFile of imageFiles) {
+          const imageMessage = await createImageMessageFromFile(imageFile, targetChatId);
+          if (imageMessage) {
+            imageMessages.push(imageMessage);
+          }
+        }
+      }
+
+      // Add user message if there's text or non-image files
+      if (userMessage || nonImageFiles.length > 0) {
+        // Add the text message to the chat
+        const actualUserMessage = addMessageToChat(
+          targetChatId,
+          'user',
+          userMessage,
+          'complete'
+        );
+        
+        // Upload non-image files if any
+        if (nonImageFiles.length > 0) {
+          try {
+            setLoadingChats(prev => ({
+              ...prev,
+              [targetChatId]: true
+            }));
+            
+            // Add chat_files flag to indicate file upload is in progress
+            updateMessageInChat(targetChatId, actualUserMessage.id, {
+              isUploadMessage: true
+            });
+            
+            const uploadResult = await uploadFilesToChat(targetChatId, nonImageFiles);
+            
+            if (uploadResult.uploaded) {
+              updateChatFiles(targetChatId, uploadResult.filenames);
+            }
+            
+          } catch (error) {
+            console.error('Error uploading files:', error);
+          } finally {
+            // We don't set loading to false here because we're going to start processing
+          }
+        }
+      }
+      
+      // Always add an assistant message, even for empty/file messages
+      const assistantMessageObj = addMessageToChat(
+        targetChatId,
+        'assistant',
+        '',
+        'streaming'
+      );
+      
+      // Track pending message
+      pendingMessagesRef.current[targetChatId] = assistantMessageObj.id;
+      
+      setLoadingChats(prev => ({
+        ...prev,
+        [targetChatId]: true
+      }));
+      
+      // We already determined if we're in image creator mode above, so we use that value directly
+      if (isInImageCreatorMode) {
+        updateMessageInChat(targetChatId, assistantMessageObj.id, { 
+          isImageGeneration: true 
+        });
+        generateImage(input, imageOptions!, targetChatId, assistantMessageObj.id);
+      } 
+      else if (userMessage.trim()) {
+        // Get the final tool state from the map now that we've created the chat
+        const effectiveToolState = toolStatesMap[targetChatId] || defaultToolState;
+        
+        // Check if we have image files (from chat input, not image generation)
+        if (imageFiles.length > 0 && !effectiveToolState.isImageCreatorEnabled) {
+          // Use start_query_session for image files from chat input
+          const formData = new FormData();
+          formData.append('query', userMessage);
+          
+          // Add all image files to the formData
+          if (imageFiles.length > 0) {
+            imageFiles.forEach((file, index) => {
+              formData.append('images', file);
+            });
+          }
+          
+          try {
+            const sessionResponse = await fetch(`${config.apiBaseUrl}/start_query_session/${targetChatId}`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${user?.token}`
+              },
+              body: formData
+            });
+            
+            if (!sessionResponse.ok) {
+              throw new Error('Failed to create query session with images');
+            }
+            
+            const sessionData = await sessionResponse.json();
+            const sessionId = sessionData.session_id;
+            
+            if (!sessionId) {
+              throw new Error('No session ID returned from server');
+            }
+            
+            // Continue with query_chat using the session_id
+            const kbName = effectiveToolState.isKnowledgeBasesEnabled && kbOptions ? kbOptions.kbName : undefined;
+            
+            // Build the URL with appropriate parameters
+            const url = new URL(`${config.apiBaseUrl}/query`);
+            url.searchParams.append('chat_id', targetChatId);
+            url.searchParams.append('token', user?.token || '');
+            url.searchParams.append('session_id', sessionId);
+            
+            if (effectiveToolState.isWebSearchEnabled) {
+              url.searchParams.append('web_search', 'true');
+            }
+            
+            if (effectiveToolState.isKnowledgeBasesEnabled && kbName) {
+              url.searchParams.append('kb_name', kbName);
+            }
+            
+            const eventSource = new EventSource(url.toString());
+            eventSourcesRef.current[targetChatId] = eventSource;
+            
+            setupEventSourceHandlers(eventSource, targetChatId, assistantMessageObj.id);
+          } catch (error) {
+            console.error('Error in image query session:', error);
+            setLoadingChats(prev => ({
+              ...prev,
+              [targetChatId]: false
+            }));
+            
+            updateMessageInChat(targetChatId, assistantMessageObj.id, {
+              content: 'Sorry, I encountered an error while processing your image request.',
+              status: 'complete'
+            });
+            
+            delete pendingMessagesRef.current[targetChatId];
+          }
+        } else {
+          // Use regular flow for non-image queries
+          const kbName = effectiveToolState.isKnowledgeBasesEnabled && kbOptions ? kbOptions.kbName : undefined;
+          startEventSource(userMessage, assistantMessageObj.id, targetChatId, kbName);
+        }
+      }
+  
+    } catch (error) {
+      console.error('Error in submit handler:', error);
+      setLoadingChats(prev => ({
+        ...prev,
+        [activeChat || '']: false
+      }));
+    }
+  };
+
+  // Helper to set up event source handlers
+  const setupEventSourceHandlers = (eventSource: EventSource, chatId: string, messageId: string) => {
+    eventSource.onmessage = (event) => {
+      const data = event.data;
+      
+      if (activeChat === chatId && !hasStartedResponse) {
+        setHasStartedResponse(true);
+      }
+      
+      if (data === '[DONE]') {
+        eventSource.close();
+        delete eventSourcesRef.current[chatId];
+        
+        setLoadingChats(prev => ({
+          ...prev,
+          [chatId]: false
+        }));
+        
+        updateMessageInChat(chatId, messageId, { status: 'complete' });
+        delete pendingMessagesRef.current[chatId];
+        
+        if (newChatIds.has(chatId)) {
+          setNewChatIds(prev => {
+            const updated = new Set(prev);
+            updated.delete(chatId);
+            return updated;
+          });
+        }
+        
+        return;
+      }
+
+      try {
+        const content = typeof data === 'string' ? data : '';
+        updateMessageInChat(chatId, messageId, prev => prev + content.replace(/\[NEWLINE\]/g, '\n'));
+      } catch (error) {
+        console.error('Error processing message:', error);
+      }
+    };
+    
+    eventSource.onerror = () => {
+      eventSource.close();
+      delete eventSourcesRef.current[chatId];
+      
+      setLoadingChats(prev => ({
+        ...prev,
+        [chatId]: false
+      }));
+      
+      updateMessageInChat(chatId, messageId, {
+        content: 'Sorry, I encountered an error while processing your request.',
+        status: 'complete'
+      });
+      
+      delete pendingMessagesRef.current[chatId];
+      
+      if (newChatIds.has(chatId)) {
+        setNewChatIds(prev => {
+          const updated = new Set(prev);
+          updated.delete(chatId);
+          return updated;
+        });
+      }
+    };
+  };
+
   // Event source setup for streaming responses
   const startEventSource = async (userMessage: string, assistantMessageId: string, chatId: string, kb_name?: string) => {
     if (eventSourcesRef.current[chatId]) {
@@ -434,7 +810,6 @@ export function useMessages({
         if (!sessionId) {
           throw new Error('No session ID returned from server');
         }
-        
       }
       
       // Build the URL with appropriate parameters
@@ -460,68 +835,7 @@ export function useMessages({
       
       eventSourcesRef.current[chatId] = newEventSource;
   
-      newEventSource.onmessage = (event) => {
-        const data = event.data;
-        
-        if (activeChat === chatId && !hasStartedResponse) {
-          setHasStartedResponse(true);
-        }
-        
-        if (data === '[DONE]') {
-          newEventSource.close();
-          delete eventSourcesRef.current[chatId];
-          
-          setLoadingChats(prev => ({
-            ...prev,
-            [chatId]: false
-          }));
-          
-          updateMessageInChat(chatId, assistantMessageId, { status: 'complete' });
-          delete pendingMessagesRef.current[chatId];
-          
-          if (newChatIds.has(chatId)) {
-            setNewChatIds(prev => {
-              const updated = new Set(prev);
-              updated.delete(chatId);
-              return updated;
-            });
-          }
-          
-          return;
-        }
-  
-        try {
-          const content = typeof data === 'string' ? data : '';
-          updateMessageInChat(chatId, assistantMessageId, prev => prev + content.replace(/\[NEWLINE\]/g, '\n'));
-        } catch (error) {
-          console.error('Error processing message:', error);
-        }
-      };
-  
-      newEventSource.onerror = () => {
-        newEventSource.close();
-        delete eventSourcesRef.current[chatId];
-        
-        setLoadingChats(prev => ({
-          ...prev,
-          [chatId]: false
-        }));
-        
-        updateMessageInChat(chatId, assistantMessageId, {
-          content: 'Sorry, I encountered an error while processing your request.',
-          status: 'complete'
-        });
-        
-        delete pendingMessagesRef.current[chatId];
-        
-        if (newChatIds.has(chatId)) {
-          setNewChatIds(prev => {
-            const updated = new Set(prev);
-            updated.delete(chatId);
-            return updated;
-          });
-        }
-      };
+      setupEventSourceHandlers(newEventSource, chatId, assistantMessageId);
   
     } catch (error) {
       console.error('Error setting up event source:', error);
@@ -540,141 +854,56 @@ export function useMessages({
     }
   };
 
-  // Main submit handler for user input
-  const handleSubmit = async (input: string, files?: File[], imageOptions?: ImageOptions, kbOptions?: KnowledgeBaseOptions) => {
-    if (!user) return;
-    if (!input?.trim() && (!files || files.length === 0)) return;
-    if (activeChat && (loadingChats[activeChat] || pendingMessagesRef.current[activeChat])) return;
-  
-    setHasStartedResponse(false);
-  
-    const userMessage = input.trim();
-    let targetChatId: string;
-    
-    try {
-      if (activeChat === null) {
-        const newChat = await createNewChat();
-        if (!newChat) {
-          console.error('Failed to create new chat');
-          return;
-        }
-        
-        targetChatId = newChat.id;
-        setActiveChat(targetChatId);
-        
-        const newChatToolState = toolStatesMap['new'] || {...defaultToolState};
-        setToolStatesMap(prev => ({
-          ...prev,
-          [targetChatId]: {...newChatToolState}
-        }));
-        
-        updateChatName(targetChatId, userMessage).catch(error => {
-          console.error('Error updating chat name:', error);
-        });
-      } else {
-        targetChatId = activeChat;
+  // Create a user message for an image file with base64 content
+  const createImageMessageFromFile = async (file: File, chatId: string): Promise<Message | null> => {
+    return new Promise((resolve) => {
+      if (!file.type.startsWith('image/')) {
+        resolve(null);
+        return;
       }
-  
-      const userMessageObj = addMessageToChat(
-        targetChatId, 
-        'user', 
-        userMessage || (files && files.length > 0 ? `Uploaded ${files.length} file(s)` : '')
-      );
-      
-      const assistantMessageObj = addMessageToChat(
-        targetChatId, 
-        'assistant', 
-        '', 
-        'streaming'
-      );
-      
-      pendingMessagesRef.current[targetChatId] = {
-        user: userMessageObj.id,
-        assistant: assistantMessageObj.id
-      };
-      
-      setLoadingChats(prev => ({
-        ...prev,
-        [targetChatId]: true
-      }));
-      
-      if (!activeChat) {
-        setNewChatIds(prev => {
-          const updated = new Set(prev);
-          updated.add(targetChatId);
-          return updated;
-        });
-      }
-  
-      if (files && files.length > 0) {
-        try {
-          updateMessageInChat(targetChatId, assistantMessageObj.id, {
-            content: '', 
-            isUploadMessage: true
-          });
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const base64Content = e.target?.result?.toString() || '';
+        if (base64Content) {
+          // Extract the base64 data without the prefix
+          let imageData = base64Content;
+          let imageFormat = 'png';
           
-          await handleFileUpload(files, targetChatId);
-          
-          if (!userMessage.trim()) {
-            updateMessageInChat(targetChatId, assistantMessageObj.id, {
-              content: 'Files have been uploaded and indexed successfully.',
-              status: 'complete',
-              isUploadMessage: false
-            });
-            
-            setLoadingChats(prev => ({
-              ...prev,
-              [targetChatId]: false
-            }));
-            
-            delete pendingMessagesRef.current[targetChatId];
-            return;
-          } else {
-            updateMessageInChat(targetChatId, assistantMessageObj.id, {
-              content: '',
-              isUploadMessage: false
-            });
+          // Extract format from the data URL
+          const formatMatch = base64Content.match(/^data:image\/([a-zA-Z0-9]+);base64,/);
+          if (formatMatch && formatMatch[1]) {
+            imageFormat = formatMatch[1];
           }
-        } catch (error) {
-          console.error('Error handling file upload:', error);
-          updateMessageInChat(targetChatId, assistantMessageObj.id, {
-            content: 'Sorry, there was an error uploading the files.',
-            status: 'complete',
-            isUploadMessage: false
+          
+          // Remove the prefix to get just the base64 data
+          const dataMatch = base64Content.match(/^data:image\/[a-zA-Z0-9]+;base64,(.+)$/);
+          if (dataMatch && dataMatch[1]) {
+            imageData = dataMatch[1];
+          }
+          
+          // Create image in JSON format
+          const imageJson = JSON.stringify({
+            type: 'image',
+            data: imageData,
+            format: imageFormat,
+            alt: file.name || 'Uploaded image'
           });
           
-          setLoadingChats(prev => ({
-            ...prev,
-            [targetChatId]: false
-          }));
-          
-          delete pendingMessagesRef.current[targetChatId];
-          return;
+          const imageMessage = addMessageToChat(
+            chatId,
+            'user',
+            imageJson, // Store as JSON string
+            'complete'
+          );
+          resolve(imageMessage);
+        } else {
+          resolve(null);
         }
-      }
-      
-      const effectiveToolState = 
-        toolStatesMap[targetChatId] || 
-        (activeChat === null ? toolStatesMap['new'] : defaultToolState);
-      
-      if (effectiveToolState.isImageCreatorEnabled && imageOptions && input.trim()) {
-        updateMessageInChat(targetChatId, assistantMessageObj.id, { 
-          isImageGeneration: true 
-        });
-        generateImage(input, imageOptions, targetChatId, assistantMessageObj.id);
-      } 
-      else if (userMessage.trim()) {
-        const kbName = effectiveToolState.isKnowledgeBasesEnabled && kbOptions ? kbOptions.kbName : undefined;
-        startEventSource(userMessage, assistantMessageObj.id, targetChatId, kbName);
-      }
-  
-    } catch (error) {
-      console.error('Error in submit handler:', error);
-      setLoadingChats(prev => ({
-        ...prev,
-        [activeChat || '']: false
-      }));
-    }
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
   };
 
   // Stop an active query/response
