@@ -22,7 +22,7 @@ export const DroppedFilesContext = createContext<{
 
 function App() {
   const [chatInputs, setChatInputs] = useState<Record<string, string>>({});
-  const [selectedModel, setSelectedModel] = useState('gpt-4');
+  const [selectedModel, setSelectedModel] = useState('GPT-4.1');
   const [isInitializing, setIsInitializing] = useState(false);
   const [isSwitchingChat, setIsSwitchingChat] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -341,8 +341,8 @@ function App() {
                 
                 {shouldShowEmptyState ? (
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-full max-w-3xl mx-auto px-4 flex flex-col items-center -mt-32">
-                      <h2 className="text-3xl font-semibold text-gray-600 mb-8">What can I help with?</h2>
+                    <div className="w-full max-w-3xl mx-auto px-4 flex flex-col items-center -mt-40">
+                      <h2 className="text-[1.7rem] font-normal text-gray-700 mb-8">Where should we begin?</h2>
                       <div className="w-full">
                         <ChatInput
                           input={currentInput}

@@ -1,8 +1,15 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserCircle2, X, LogOut, Loader2, Eye } from 'lucide-react';
 import { SidebarToggle } from './icons/SidebarToggle';
 import { NewChatIcon } from './icons/NewChatIcon';
 import { User } from '../types';
+import config from '../config';
+
+interface Model {
+  id: string;
+  name: string;
+  description: string;
+}
 
 interface HeaderProps {
   selectedModel: string;
@@ -45,15 +52,62 @@ export function Header({
   isPreviewMode = false,
   onTogglePreview
 }: HeaderProps) {
-  const models = [
-    { id: 'gpt-4', name: 'GPT-4 (Recommended)' },
-    { id: 'gpt-3.5', name: 'GPT-3.5 Turbo' },
-    { id: 'claude', name: 'Claude 2.1' },
-  ];
+  const [availableModels, setAvailableModels] = useState<Model[]>([
+    { id: 'gpt-4', name: 'GPT-4 (Recommended)', description: 'Great for most tasks' },
+    { id: 'gpt-3.5', name: 'GPT-3.5 Turbo', description: 'Faster, but less capable' },
+    { id: 'claude', name: 'Claude 2.1', description: 'Alternative AI model' },
+  ]);
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const fetchAvailableModels = async () => {
+      try {
+        const response = await fetch(`${config.apiBaseUrl}/query/available_models`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch available models');
+        }
+        
+        const data = await response.json();
+        if (data.models && Array.isArray(data.models)) {
+          setAvailableModels(data.models.map((model: any) => ({
+            id: model.name,
+            name: model.name,
+            description: model.description || ''
+          })));
+        }
+      } catch (error) {
+        console.error('Error fetching available models:', error);
+      }
+    };
+
+    fetchAvailableModels();
+  }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(event.target as Node)) {
+        setIsModelDropdownOpen(false);
+      }
+    }
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  const formatModelName = (modelId: string) => {
+    let modelName = modelId;
+    if (modelName.startsWith('GPT-')) {
+      modelName = modelName.substring(4);
+    }
+    return modelName;
+  };
 
   const getInitials = (name: string) => {
     if (!name) return '?';
-    // If display_name is available, use it; otherwise use username
     const displayName = user?.display_name || name;
     return displayName.charAt(0).toUpperCase();
   };
@@ -70,6 +124,15 @@ export function Header({
     } catch (error) {
       console.error('Login failed:', error);
     }
+  };
+
+  const toggleModelDropdown = () => {
+    setIsModelDropdownOpen(!isModelDropdownOpen);
+  };
+
+  const handleSelectModel = (modelId: string) => {
+    onModelChange(modelId);
+    setIsModelDropdownOpen(false);
   };
 
   return (
@@ -99,17 +162,40 @@ export function Header({
                 </div>
               </>
             )}
-            <select
-              value={selectedModel}
-              onChange={(e) => onModelChange(e.target.value)}
-              className="w-64 py-1.5 px-3 text-lg bg-transparent hover:bg-gray-50 rounded-lg cursor-pointer transition-colors focus:outline-none font-medium text-gray-600"
-            >
-              {models.map(model => (
-                <option key={model.id} value={model.id} className="text-lg font-medium text-gray-600">
-                  {model.name}
-                </option>
-              ))}
-            </select>
+            <div className="relative w-64" ref={modelDropdownRef}>
+              <button 
+                onClick={toggleModelDropdown}
+                className="w-full py-1.5 px-3 flex items-center rounded-lg hover:bg-gray-50 transition-colors focus:outline-none"
+              >
+                <div className="flex items-center">
+                  <span className="text-black text-xl">ElbitGPT</span>
+                  <span className="text-gray-500 ml-3 text-xl">{formatModelName(selectedModel)}</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-gray-500 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </button>
+              
+              {isModelDropdownOpen && (
+                <div className="absolute top-full left-0 w-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 z-20">
+                  <div className="p-2">
+                    <div className="text-sm text-gray-500 mb-1 px-2">Models</div>
+                    {availableModels.map(model => (
+                      <div 
+                        key={model.id}
+                        className={`p-2 rounded hover:bg-gray-50 cursor-pointer ${selectedModel === model.id ? 'bg-gray-50' : ''}`}
+                        onClick={() => handleSelectModel(model.id)}
+                      >
+                        <div className="font-medium">{model.name}</div>
+                        {model.description && (
+                          <div className="text-xs text-gray-400">{model.description}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
         {title && (

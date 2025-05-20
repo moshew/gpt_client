@@ -225,7 +225,7 @@ export function ChatInput({
   return (
     <div className={`flex-none bg-gradient-to-t from-white via-white pb-8`}>
       <form ref={formRef} onSubmit={handleSubmit} className="relative w-full max-w-[50rem] mx-auto">
-        <div className="relative rounded-2xl shadow-[0_0_15px_rgba(0,0,0,0.1)] bg-white">
+        <div className="relative rounded-3xl border border-gray-300 shadow-[0px_5px_5px_rgba(0,0,0,0.06)] bg-white">
           {/* File Uploads (only shown when neither Image Creator nor Knowledge Bases is enabled) */}
           {selectedFiles.length > 0 && !isImageCreatorEnabled && !isKnowledgeBasesEnabled && (
             <FileUploadsControl 
