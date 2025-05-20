@@ -85,18 +85,32 @@ export function useMessages({
   
   // Update selectedModel when it changes in the App component
   useEffect(() => {
-    const handleModelChange = (event: StorageEvent) => {
+    // Handler for changes in other windows/tabs
+    const handleStorageEvent = (event: StorageEvent) => {
       if (event.key === 'selectedModel' && event.newValue) {
         setSelectedModel(event.newValue);
       }
     };
     
-    window.addEventListener('storage', handleModelChange);
+    // Check for changes in this window
+    const checkLocalStorage = () => {
+      const currentModel = localStorage.getItem('selectedModel');
+      if (currentModel && currentModel !== selectedModel) {
+        setSelectedModel(currentModel);
+      }
+    };
+
+    // Run check periodically
+    const intervalId = setInterval(checkLocalStorage, 1000);
+    
+    // Listen for changes in other windows
+    window.addEventListener('storage', handleStorageEvent);
     
     return () => {
-      window.removeEventListener('storage', handleModelChange);
+      clearInterval(intervalId);
+      window.removeEventListener('storage', handleStorageEvent);
     };
-  }, []);
+  }, [selectedModel]);
 
   // Reset state for a new chat
   const resetState = () => {
@@ -490,6 +504,114 @@ export function useMessages({
     }
   };
 
+  // Unified function to handle all query requests (with or without images)
+  const createQueryRequest = async (
+    userMessage: string, 
+    assistantMessageId: string, 
+    chatId: string, 
+    imageFiles: File[] = [], 
+    kbName?: string
+  ) => {
+    if (eventSourcesRef.current[chatId]) {
+      eventSourcesRef.current[chatId].close();
+      delete eventSourcesRef.current[chatId];
+    }
+  
+    try {
+      // Get the effective tool state
+      const effectiveToolState = toolStatesMap[chatId] || defaultToolState;
+      
+      // Determine the API endpoint
+      let baseUrl = `${config.apiBaseUrl}/query`;
+      if (effectiveToolState.isCodeAnalysisEnabled) {
+        baseUrl = `${config.apiBaseUrl}/query_code`;
+      }
+      
+      // Determine if we need to create a session first:
+      // - Either the message is long (>1000 characters)
+      // - Or we have image files to upload
+      const isLongMessage = userMessage.length > 1000;
+      const hasImages = imageFiles.length > 0;
+      let sessionId: string | null = null;
+      
+      // Create a session if needed
+      if (isLongMessage || hasImages) {
+        const formData = new FormData();
+        formData.append('query', userMessage);
+        
+        // Add images if available
+        if (hasImages) {
+          imageFiles.forEach(file => {
+            formData.append('images', file);
+          });
+        }
+        
+        const sessionResponse = await fetch(`${config.apiBaseUrl}/start_query_session/${chatId}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${user?.token}`
+          },
+          body: formData
+        });
+        
+        if (!sessionResponse.ok) {
+          throw new Error('Failed to create query session');
+        }
+        
+        const sessionData = await sessionResponse.json();
+        sessionId = sessionData.session_id;
+        
+        if (!sessionId) {
+          throw new Error('No session ID returned from server');
+        }
+      }
+      
+      // Build the query URL with all necessary parameters
+      const url = new URL(baseUrl);
+      url.searchParams.append('chat_id', chatId);
+      url.searchParams.append('token', user?.token || '');
+      
+      // Always send the deployment_name
+      url.searchParams.append('deployment_name', selectedModel);
+      
+      // Add session ID if available, otherwise add the query directly
+      if (sessionId) {
+        url.searchParams.append('session_id', sessionId);
+      } else {
+        url.searchParams.append('query', userMessage);
+      }
+      
+      // Add optional parameters based on tool state
+      if (effectiveToolState.isWebSearchEnabled) {
+        url.searchParams.append('web_search', 'true');
+      }
+      
+      if (effectiveToolState.isKnowledgeBasesEnabled && kbName) {
+        url.searchParams.append('kb_name', kbName);
+      }
+      
+      // Create and setup the EventSource
+      const newEventSource = new EventSource(url.toString());
+      eventSourcesRef.current[chatId] = newEventSource;
+      setupEventSourceHandlers(newEventSource, chatId, assistantMessageId);
+      
+    } catch (error) {
+      console.error('Error setting up query request:', error);
+      
+      setLoadingChats(prev => ({
+        ...prev,
+        [chatId]: false
+      }));
+      
+      updateMessageInChat(chatId, assistantMessageId, {
+        content: 'Sorry, I encountered an error while processing your request.',
+        status: 'complete'
+      });
+      
+      delete pendingMessagesRef.current[chatId];
+    }
+  };
+
   // Main submit handler for user input
   const handleSubmit = async (input: string, files?: File[], imageOptions?: ImageOptions, kbOptions?: KnowledgeBaseOptions) => {
     if (!user) return;
@@ -624,79 +746,11 @@ export function useMessages({
         // Get the final tool state from the map now that we've created the chat
         const effectiveToolState = toolStatesMap[targetChatId] || defaultToolState;
         
-        // Check if we have image files (from chat input, not image generation)
-        if (imageFiles.length > 0 && !effectiveToolState.isImageCreatorEnabled) {
-          // Use start_query_session for image files from chat input
-          const formData = new FormData();
-          formData.append('query', userMessage);
-          
-          // Add all image files to the formData
-          if (imageFiles.length > 0) {
-            imageFiles.forEach((file, index) => {
-              formData.append('images', file);
-            });
-          }
-          
-          try {
-            const sessionResponse = await fetch(`${config.apiBaseUrl}/start_query_session/${targetChatId}`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${user?.token}`
-              },
-              body: formData
-            });
-            
-            if (!sessionResponse.ok) {
-              throw new Error('Failed to create query session with images');
-            }
-            
-            const sessionData = await sessionResponse.json();
-            const sessionId = sessionData.session_id;
-            
-            if (!sessionId) {
-              throw new Error('No session ID returned from server');
-            }
-            
-            // Continue with query_chat using the session_id
-            const kbName = effectiveToolState.isKnowledgeBasesEnabled && kbOptions ? kbOptions.kbName : undefined;
-            
-            // Build the URL with appropriate parameters
-            const url = new URL(`${config.apiBaseUrl}/query`);
-            url.searchParams.append('chat_id', targetChatId);
-            url.searchParams.append('token', user?.token || '');
-            url.searchParams.append('session_id', sessionId);
-            
-            if (effectiveToolState.isWebSearchEnabled) {
-              url.searchParams.append('web_search', 'true');
-            }
-            
-            if (effectiveToolState.isKnowledgeBasesEnabled && kbName) {
-              url.searchParams.append('kb_name', kbName);
-            }
-            
-            const eventSource = new EventSource(url.toString());
-            eventSourcesRef.current[targetChatId] = eventSource;
-            
-            setupEventSourceHandlers(eventSource, targetChatId, assistantMessageObj.id);
-          } catch (error) {
-            console.error('Error in image query session:', error);
-            setLoadingChats(prev => ({
-              ...prev,
-              [targetChatId]: false
-            }));
-            
-            updateMessageInChat(targetChatId, assistantMessageObj.id, {
-              content: 'Sorry, I encountered an error while processing your image request.',
-              status: 'complete'
-            });
-            
-            delete pendingMessagesRef.current[targetChatId];
-          }
-        } else {
-          // Use regular flow for non-image queries
-          const kbName = effectiveToolState.isKnowledgeBasesEnabled && kbOptions ? kbOptions.kbName : undefined;
-          startEventSource(userMessage, assistantMessageObj.id, targetChatId, kbName);
-        }
+        // Get knowledge base name if needed
+        const kbName = effectiveToolState.isKnowledgeBasesEnabled && kbOptions ? kbOptions.kbName : undefined;
+        
+        // Use the unified function for all query requests
+        await createQueryRequest(userMessage, assistantMessageObj.id, targetChatId, imageFiles, kbName);
       }
   
     } catch (error) {
@@ -792,110 +846,6 @@ export function useMessages({
     eventSource.onopen = () => {
       console.log('EventSource connection established for chat', chatId);
     };
-  };
-
-  // Event source setup for streaming responses
-  const startEventSource = async (userMessage: string, assistantMessageId: string, chatId: string, kb_name?: string) => {
-    if (eventSourcesRef.current[chatId]) {
-      eventSourcesRef.current[chatId].close();
-      delete eventSourcesRef.current[chatId];
-    }
-  
-    try {
-      // Important fix: Determine correct tool state to use
-      let effectiveToolState;
-      
-      if (!activeChat && toolStatesMap['new']) {
-        effectiveToolState = toolStatesMap['new'];
-        
-        if (!toolStatesMap[chatId]) {
-          setToolStatesMap(prev => ({
-            ...prev,
-            [chatId]: {...effectiveToolState}
-          }));
-        }
-      } else {
-        effectiveToolState = toolStatesMap[chatId] || defaultToolState;
-      }
-      
-      // Determine the API endpoint
-      let baseUrl = `${config.apiBaseUrl}/query`;
-      if (effectiveToolState.isCodeAnalysisEnabled) {
-        baseUrl = `${config.apiBaseUrl}/query_code`;
-      }
-      
-      // Check if the message is long (>1000 characters)
-      const isLongMessage = userMessage.length > 1000;
-      let sessionId: string | null = null;
-      
-      // For long messages, first create a session
-      if (isLongMessage) {
-        const formData = new FormData();
-        formData.append('query', userMessage);
-        
-        const sessionResponse = await fetch(`${config.apiBaseUrl}/start_query_session/${chatId}`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${user?.token}`
-          },
-          body: formData
-        });
-        
-        if (!sessionResponse.ok) {
-          throw new Error('Failed to create query session');
-        }
-        
-        const sessionData = await sessionResponse.json();
-        sessionId = sessionData.session_id;
-        
-        if (!sessionId) {
-          throw new Error('No session ID returned from server');
-        }
-      }
-      
-      // Build the URL with appropriate parameters
-      const url = new URL(baseUrl);
-      url.searchParams.append('chat_id', chatId);
-      url.searchParams.append('token', user?.token || '');
-      
-      // Add the deployment_name parameter with the selected model
-      url.searchParams.append('deployment_name', selectedModel);
-      
-      if (isLongMessage && sessionId) {
-        url.searchParams.append('session_id', sessionId);
-      } else {
-        url.searchParams.append('query', userMessage);
-      }
-      
-      if (effectiveToolState.isWebSearchEnabled) {
-        url.searchParams.append('web_search', 'true');
-      }
-      
-      if (effectiveToolState.isKnowledgeBasesEnabled && kb_name) {
-        url.searchParams.append('kb_name', kb_name);
-      }
-      
-      const newEventSource = new EventSource(url.toString());
-      
-      eventSourcesRef.current[chatId] = newEventSource;
-  
-      setupEventSourceHandlers(newEventSource, chatId, assistantMessageId);
-  
-    } catch (error) {
-      console.error('Error setting up event source:', error);
-      
-      setLoadingChats(prev => ({
-        ...prev,
-        [chatId]: false
-      }));
-      
-      updateMessageInChat(chatId, assistantMessageId, {
-        content: 'Sorry, I encountered an error while processing your request.',
-        status: 'complete'
-      });
-      
-      delete pendingMessagesRef.current[chatId];
-    }
   };
 
   // Create a user message for an image file with base64 content
