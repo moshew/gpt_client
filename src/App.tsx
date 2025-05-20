@@ -243,7 +243,7 @@ function App() {
   }, [droppedFiles]);
 
   return (
-    <div className="flex h-screen bg-white relative overflow-hidden">
+    <div className="flex h-screen bg-white relative">
       {user && (
         <>
           {isLeftPanelOpen && editingCode !== null && (
@@ -322,7 +322,7 @@ function App() {
             )}
           </div>
 
-          <div className="flex-1 flex min-h-0 relative overflow-hidden">
+          <div className="flex-1 flex min-h-0 relative">
             <div className={`flex flex-col transition-all duration-300 ease-in-out ${editingCode !== null ? 'w-1/2 bg-gray-50' : 'w-full'}`}>
               <div 
                 className="flex-1 relative"
@@ -340,10 +340,10 @@ function App() {
                 )}
                 
                 {shouldShowEmptyState ? (
-                  <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+                  <div className="absolute inset-0 flex items-center justify-center">
                     <div className="w-full max-w-3xl mx-auto px-4 flex flex-col items-center -mt-32">
                       <h2 className="text-3xl font-semibold text-gray-600 mb-8">What can I help with?</h2>
-                      <div className="w-full overflow-hidden">
+                      <div className="w-full">
                         <ChatInput
                           input={currentInput}
                           isLoading={isLoading}
