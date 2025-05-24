@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Message, containsHebrew } from '../types';
 import { Maximize2, X } from 'lucide-react';
 
@@ -17,6 +17,28 @@ interface ImageData {
 export function ChatMessageUser({ message }: ChatMessageUserProps) {
   const [showFullImage, setShowFullImage] = useState(false);
   const isHebrew = containsHebrew(message.content);
+  
+  // Handle ESC key to close modal
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && showFullImage) {
+        setShowFullImage(false);
+      }
+    };
+
+    if (showFullImage) {
+      document.addEventListener('keydown', handleKeyDown);
+      // Prevent body scroll when modal is open
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'unset';
+    };
+  }, [showFullImage]);
   
   // בדיקה האם התוכן הוא תמונה בפורמט JSON
   const isImageContent = (): boolean => {
@@ -67,9 +89,13 @@ export function ChatMessageUser({ message }: ChatMessageUserProps) {
             src={imageUrl} 
             alt={imageData?.alt || 'User uploaded image'} 
             className="max-w-full max-h-[300px] object-contain cursor-pointer rounded-md" 
-            onClick={() => setShowFullImage(true)}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setShowFullImage(true);
+            }}
           />
-          <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-30 transition-opacity flex items-center justify-center opacity-0 hover:opacity-100">
+          <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-30 transition-opacity flex items-center justify-center opacity-0 hover:opacity-100 pointer-events-none">
             <Maximize2 className="w-5 h-5 text-white" />
           </div>
         </div>
@@ -89,14 +115,14 @@ export function ChatMessageUser({ message }: ChatMessageUserProps) {
     <>
       <div className="max-w-3xl mx-auto flex justify-end">
         <div 
-          className="bg-gray-100 rounded-2xl p-4 inline-block text-lg user-message"
+          className={`${isImage ? '' : 'bg-gray-100'} rounded-2xl ${isImage ? '' : 'p-4'} inline-block text-lg user-message`}
           dir={isHebrew && !isImage ? 'rtl' : 'ltr'}
           style={{ 
             textAlign: isHebrew && !isImage ? 'right' : 'left',
             whiteSpace: isImage ? 'normal' : 'pre-wrap',
             wordBreak: 'break-word',
             minHeight: 'fit-content',
-            backgroundColor: '#f3f4f6', // Explicit background color as fallback
+            backgroundColor: isImage ? 'transparent' : '#f3f4f6', // No background for images
             maxWidth: isImage ? '350px' : undefined,
           }}
         >
@@ -107,12 +133,17 @@ export function ChatMessageUser({ message }: ChatMessageUserProps) {
       {/* תצוגת תמונה בגודל מלא */}
       {showFullImage && isImage && imageUrl && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50"
-          onClick={() => setShowFullImage(false)}
+          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center"
+          style={{ zIndex: 9999 }}
+          onClick={(e) => {
+            setShowFullImage(false);
+          }}
         >
           <div 
             className="relative max-w-[90vw] max-h-[90vh] overflow-auto"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
           >
             <img 
               src={imageUrl} 
@@ -120,8 +151,11 @@ export function ChatMessageUser({ message }: ChatMessageUserProps) {
               className="max-w-full max-h-[90vh] object-contain"
             />
             <button
-              className="absolute top-2 right-2 bg-white bg-opacity-80 p-1 rounded-full text-gray-800 hover:bg-opacity-100"
-              onClick={() => setShowFullImage(false)}
+              className="absolute top-2 right-2 bg-white bg-opacity-80 p-1 rounded-full text-gray-800 hover:bg-opacity-100 transition-opacity"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowFullImage(false);
+              }}
             >
               <X className="w-6 h-6" />
             </button>

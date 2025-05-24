@@ -61,9 +61,9 @@ function App() {
     clearMessages,
     clearAllChats,
     stopQuery,
-    uploadStatus,
     resetState,
-    toolStatesMap
+    toolStatesMap,
+    uploadStatus
   } = useMessages({
     user,
     activeChat,
@@ -94,11 +94,6 @@ function App() {
 
   const currentInput = activeChat ? (chatInputs[activeChat] || '') : (chatInputs['new'] || '');
   
-  // Get active chat files
-  const activeFiles = activeChat 
-    ? chats.find(chat => chat.id === activeChat)?.files || [] 
-    : [];
-
   const handleInputChange = (value: string) => {
     if (activeChat) {
       setChatInputs(prev => ({
@@ -356,7 +351,7 @@ function App() {
                           onSubmit={handleFormSubmit}
                           onStop={handleStopQuery}
                           messages={messages}
-                          isInitializing={isInitializing || loadingChats}
+                          isInitializing={isInitializing || (activeChat ? !!loadingChats[activeChat] : false)}
                           uploadStatus={uploadStatus}
                           chatId={activeChat}
                           isImageCreatorEnabled={isImageCreatorEnabled}
@@ -382,7 +377,7 @@ function App() {
                       onSubmit={handleFormSubmit}
                       onStop={handleStopQuery}
                       messages={messages}
-                      isInitializing={isInitializing || loadingChats}
+                      isInitializing={isInitializing || (activeChat ? !!loadingChats[activeChat] : false)}
                       uploadStatus={uploadStatus}
                       chatId={activeChat}
                       isImageCreatorEnabled={isImageCreatorEnabled}

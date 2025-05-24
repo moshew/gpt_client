@@ -17,7 +17,6 @@ interface ChatInputProps {
   uploadStatus?: {
     isUploading: boolean;
     isIndexing: boolean;
-    error?: string;
   };
   chatId?: string | null;
   isImageCreatorEnabled?: boolean;
@@ -33,7 +32,7 @@ export function ChatInput({
   onStop,
   messages,
   isInitializing = false,
-  uploadStatus = { isUploading: false, isIndexing: false },
+  uploadStatus,
   chatId,
   isImageCreatorEnabled = false,
   isKnowledgeBasesEnabled = false,
@@ -53,8 +52,13 @@ export function ChatInput({
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
   const [selectedKb, setSelectedKb] = useState<string>("e-cix");
   
-  // Define isFileProcessing at the top of the component
-  const isFileProcessing = chatId !== null && (uploadStatus.isUploading || uploadStatus.isIndexing);
+  // Determine if there's an upload in progress
+  const isFileProcessing = uploadStatus?.isUploading || uploadStatus?.isIndexing || false;
+
+  // Check if we have images (either in selectedFiles or as selectedImageFile)
+  const hasImages = selectedFiles.some(file => file.type.startsWith('image/')) || 
+                   selectedImageFile !== null ||
+                   imageOptions.image !== undefined;
 
   // Register the function to handle dropped files
   useEffect(() => {
@@ -71,7 +75,7 @@ export function ChatInput({
     if (isImageCreatorEnabled || isKnowledgeBasesEnabled) return;
     
     // Skip if file processing is in progress
-    if (isFileProcessing) return;
+    if (isLoading || isFileProcessing) return;
 
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -105,7 +109,7 @@ export function ChatInput({
     return () => {
       document.removeEventListener('paste', handlePaste);
     };
-  }, [isFileProcessing, isImageCreatorEnabled, isKnowledgeBasesEnabled]);
+  }, [isLoading, isImageCreatorEnabled, isKnowledgeBasesEnabled, isFileProcessing]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -118,7 +122,20 @@ export function ChatInput({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if ((input.trim() || selectedFiles.length > 0) && !isFileProcessing && !isLoading) {
+      
+      // Check what content we have
+      const hasText = input.trim().length > 0;
+      const hasFiles = selectedFiles.length > 0;
+      const hasImageContent = hasImages;
+      const hasNonImageFiles = selectedFiles.some(file => !file.type.startsWith('image/'));
+      
+      // Check if we can submit
+      const canSubmit = (hasText || hasFiles || hasImageContent) && // Have some content
+                       !(hasNonImageFiles && !hasText) && // Non-image files need text
+                       !(isImageCreatorEnabled && !hasText); // Image Creator needs text
+      
+      // Submit if conditions are met and not loading
+      if (canSubmit && !isLoading && !isFileProcessing) {
         handleSubmit(e);
       }
     }
@@ -177,13 +194,23 @@ export function ChatInput({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Don't submit if there's no input, no files, if we're already loading, or if a response is being generated
-    if (
-      (!input.trim() && selectedFiles.length === 0 && !isImageCreatorEnabled) || 
-      (!input.trim() && isImageCreatorEnabled) || 
-      isFileProcessing ||
-      isLoading  // Add this check to prevent submission while a response is being generated
-    ) return;
+    // Check what content we have
+    const hasText = input.trim().length > 0;
+    const hasFiles = selectedFiles.length > 0;
+    const hasImageContent = hasImages;
+    const hasNonImageFiles = selectedFiles.some(file => !file.type.startsWith('image/'));
+    
+    // Don't submit if there's absolutely no content
+    if (!hasText && !hasFiles && !hasImageContent) return;
+    
+    // Don't submit if we have non-image files but no text (non-image files require text)
+    if (hasNonImageFiles && !hasText) return;
+    
+    // Don't submit if in Image Creator mode but no text (Image Creator requires text)
+    if (isImageCreatorEnabled && !hasText) return;
+    
+    // Don't submit during loading or file processing
+    if (isLoading || isFileProcessing) return;
 
     const files = selectedFiles.length > 0 ? [...selectedFiles] : undefined;
     
@@ -203,23 +230,26 @@ export function ChatInput({
     setSelectedFiles([]);
   };
 
-  // Check if a file upload is in progress for the current chat
-  // This declaration was moved to the top of the component
-  // const isFileProcessing = chatId !== null && (uploadStatus.isUploading || uploadStatus.isIndexing);
-
   // Determine the upload status text to display
-  const uploadStatusText = !isImageCreatorEnabled && uploadStatus.isUploading 
+  const uploadStatusText = !isImageCreatorEnabled && uploadStatus?.isUploading 
     ? "The documents are uploading..." 
-    : !isImageCreatorEnabled && uploadStatus.isIndexing 
+    : !isImageCreatorEnabled && uploadStatus?.isIndexing 
       ? "Indexing uploaded documents..." 
       : "";
 
+  // Check what content we have for submit button state
+  const hasText = input.trim().length > 0;
+  const hasFiles = selectedFiles.length > 0;
+  const hasImageContent = hasImages;
+  const hasNonImageFiles = selectedFiles.some(file => !file.type.startsWith('image/'));
+
   // This controls whether the submit button should be disabled
-  // Important: We're keeping the input field enabled, but controlling only the submit button
   const isSubmitDisabled = (
-    !input.trim() || // Always require text input
-    isFileProcessing ||
-    isLoading
+    (!hasText && !hasFiles && !hasImageContent) || // Need some content
+    (hasNonImageFiles && !hasText) || // Non-image files need text
+    (isImageCreatorEnabled && !hasText) || // Image Creator needs text
+    isLoading ||
+    isFileProcessing
   );
 
   return (
@@ -253,7 +283,7 @@ export function ChatInput({
             onKeyDown={handleKeyDown}
             placeholder={isImageCreatorEnabled ? "Describe the image you want to create..." : "Ask anything"}
             className="w-full px-4 py-4 border-0 bg-transparent focus:outline-none focus:ring-0 text-lg resize-none overflow-y-auto"
-            disabled={isFileProcessing || isLoading} // Disable input during loading or file processing
+            disabled={isLoading || isFileProcessing} // Disable input during loading or file processing
             dir="auto"
             rows={1}
             style={{
@@ -271,7 +301,7 @@ export function ChatInput({
                     onChange={handleFileSelect}
                     className="hidden"
                     accept=".pdf,.doc,.docx,.txt,.zip,.tar,.gz,.rar,.7z" // Added archive file extensions
-                    disabled={isFileProcessing}
+                    disabled={isLoading || isFileProcessing}
                     multiple
                   />
                   <div className="tooltip-wrapper upload-button">
@@ -279,7 +309,7 @@ export function ChatInput({
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
                       className="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors border border-gray-200 ml-2"
-                      disabled={isFileProcessing}
+                      disabled={isLoading || isFileProcessing}
                     >
                       {isFileProcessing ? (
                         <Loader2 className="w-5 h-5 animate-spin" />
@@ -300,7 +330,7 @@ export function ChatInput({
                   onChange={handleImageFileSelect}
                   className="hidden"
                   accept="image/*"
-                  disabled={isLoading}
+                  disabled={isLoading || isFileProcessing}
                 />
               )}
               
@@ -320,16 +350,17 @@ export function ChatInput({
                 <KBControl 
                   selectedKb={selectedKb} 
                   onChange={handleKbChange}
-                  disabled={isLoading}
+                  disabled={isLoading || isFileProcessing}
                 />
               )}
               
               {uploadStatusText && (
                 <span className="text-sm text-gray-500 ml-2">{uploadStatusText}</span>
               )}
+              
               <button
                 type="button"
-                onClick={isLoading && !uploadStatus.isIndexing ? onStop : handleSubmit}
+                onClick={isLoading ? onStop : handleSubmit}
                 disabled={!isLoading && isSubmitDisabled} // Only disable when NOT loading and submission conditions aren't met
                 className="ml-auto mr-2 p-2 text-gray-500 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
