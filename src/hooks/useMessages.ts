@@ -203,18 +203,19 @@ export function useMessages({
         const data: ChatDataResponse = await response.json();
 
         const convertedMessages: Message[] = data.messages.map(msg => {
-          // Check if the message is an image type by checking if content is an object
-          if (msg.sender === 'assistant' && typeof msg.content === 'object' && msg.content?.type === 'image') {
+          // Check if the message is an image type by checking if there's an image_result
+          if (msg.sender === 'assistant' && msg.image_result) {
             return {
               id: msg.id.toString(),
               role: msg.sender,
               content: '', // Empty content for image messages
               status: 'complete',
               imageResult: {
-                url: msg.content.url,
-                filename: msg.content.filename,
-                timestamp: msg.content.created,
-                isVariation: false
+                url: msg.image_result.url,
+                prompt: msg.image_result.prompt,
+                filename: msg.image_result.filename,
+                timestamp: msg.image_result.timestamp,
+                isVariation: msg.image_result.is_variation
               }
             };
           } else {
@@ -396,7 +397,19 @@ export function useMessages({
           console.error('Indexing error response:', errorText);
           throw new Error(`Failed to index documents: ${indexResponse.status} ${indexResponse.statusText}`);
         }
-      } 
+        
+        // Update status after indexing completes
+        setUploadStatusMap(prev => ({
+          ...prev,
+          [chatId]: { isUploading: false, isIndexing: false }
+        }));
+      } else {
+        // For code files, update status immediately
+        setUploadStatusMap(prev => ({
+          ...prev,
+          [chatId]: { isUploading: false, isIndexing: false }
+        }));
+      }
     } catch (error) {
       console.error('Error handling files:', error);
       setUploadStatusMap(prev => ({
@@ -404,37 +417,32 @@ export function useMessages({
         [chatId]: { isUploading: false, isIndexing: false, error: 'Failed to process documents' }
       }));
       throw error;
-    } finally {
-      setUploadStatusMap(prev => ({
-        ...prev,
-        [chatId]: { isUploading: false, isIndexing: false }
-      }));
     }
   };
 
   // Upload files to chat and return uploaded filenames
-  const uploadFilesToChat = async (chatId: string, files: File[]): Promise<{uploaded: boolean, filenames: ChatFile[]}> => {
+  const uploadFilesToChat = async (chatId: string, files: File[]): Promise<{uploaded: boolean, docFiles: ChatFile[], codeFiles: ChatFile[]}> => {
     if (!user?.token) {
       throw new Error('User not authenticated');
     }
-  
+
     setUploadStatusMap(prev => ({
       ...prev,
       [chatId]: { isUploading: true, isIndexing: false }
     }));
-  
+
     try {
       // Get current tool state to determine file type
       const currentState = toolStatesMap[chatId] || toolStatesMap['new'] || defaultToolState;
       const fileType = currentState.isCodeAnalysisEnabled ? "code" : "doc";
-  
+
       const formData = new FormData();
       files.forEach(file => {
         formData.append('files', file);
       });
       
       formData.append('file_type', fileType);
-  
+
       const uploadResponse = await fetch(`${config.apiBaseUrl}/upload_files/${chatId}`, {
         method: 'POST',
         headers: {
@@ -442,7 +450,7 @@ export function useMessages({
         },
         body: formData
       });
-  
+
       if (!uploadResponse.ok) {
         const errorText = await uploadResponse.text();
         console.error('Upload error response:', errorText);
@@ -451,21 +459,13 @@ export function useMessages({
       
       const uploadData = await uploadResponse.json();
       
-      // Convert string filenames to ChatFile objects if necessary
-      const docFiles = (uploadData.doc_files || []).map((filename: string) => ({ 
-        id: filename, 
-        file_name: filename,
-        file_type: 'doc'
-      }));
+      // The server returns ChatFile objects directly, not strings
+      const docFiles: ChatFile[] = uploadData.doc_files || [];
+      const codeFiles: ChatFile[] = uploadData.code_files || [];
       
-      const codeFiles = (uploadData.code_files || []).map((filename: string) => ({ 
-        id: filename, 
-        file_name: filename,
-        file_type: 'code'
-      }));
-      
-      const chatFiles: ChatFile[] = [...docFiles, ...codeFiles];
-  
+      // Update files immediately after upload
+      updateChatFiles(chatId, docFiles, codeFiles);
+
       // Only index files if they are documents (not code)
       if (fileType === "doc") {
         setUploadStatusMap(prev => ({
@@ -480,15 +480,27 @@ export function useMessages({
             'Content-Type': 'application/json'
           },
         });
-  
+        
         if (!indexResponse.ok) {
           const errorText = await indexResponse.text();
           console.error('Indexing error response:', errorText);
           throw new Error(`Failed to index documents: ${indexResponse.status} ${indexResponse.statusText}`);
         }
+        
+        // Update status after indexing completes
+        setUploadStatusMap(prev => ({
+          ...prev,
+          [chatId]: { isUploading: false, isIndexing: false }
+        }));
+      } else {
+        // For code files, update status immediately
+        setUploadStatusMap(prev => ({
+          ...prev,
+          [chatId]: { isUploading: false, isIndexing: false }
+        }));
       }
       
-      return { uploaded: true, filenames: chatFiles };
+      return { uploaded: true, docFiles, codeFiles };
     } catch (error) {
       console.error('Error handling files:', error);
       setUploadStatusMap(prev => ({
@@ -496,11 +508,6 @@ export function useMessages({
         [chatId]: { isUploading: false, isIndexing: false, error: 'Failed to process documents' }
       }));
       throw error;
-    } finally {
-      setUploadStatusMap(prev => ({
-        ...prev,
-        [chatId]: { isUploading: false, isIndexing: false }
-      }));
     }
   };
 
@@ -667,6 +674,12 @@ export function useMessages({
       // This ensures the messages don't disappear while waiting for the response
       setHasStartedResponse(true);
 
+      // Start loading immediately - covers upload, indexing, and query
+      setLoadingChats(prev => ({
+        ...prev,
+        [targetChatId]: true
+      }));
+
       // Separate image files from other files
       const imageFiles = files?.filter(file => file.type.startsWith('image/')) || [];
       const nonImageFiles = files?.filter(file => !file.type.startsWith('image/')) || [];
@@ -694,63 +707,113 @@ export function useMessages({
         
         // Upload non-image files if any
         if (nonImageFiles.length > 0) {
+          // Create assistant message for upload/indexing progress
+          const uploadAssistantMessage = addMessageToChat(
+            targetChatId,
+            'assistant',
+            '',
+            'streaming'
+          );
+          
+          // Mark it as upload message to show loading dots
+          updateMessageInChat(targetChatId, uploadAssistantMessage.id, {
+            isUploadMessage: true
+          });
+          
           try {
-            setLoadingChats(prev => ({
-              ...prev,
-              [targetChatId]: true
-            }));
-            
-            // Add chat_files flag to indicate file upload is in progress
-            updateMessageInChat(targetChatId, actualUserMessage.id, {
-              isUploadMessage: true
-            });
-            
             const uploadResult = await uploadFilesToChat(targetChatId, nonImageFiles);
             
             if (uploadResult.uploaded) {
-              updateChatFiles(targetChatId, uploadResult.filenames);
+              updateChatFiles(targetChatId, uploadResult.docFiles, uploadResult.codeFiles);
             }
+            
+            // Clear upload message flag after upload completes
+            updateMessageInChat(targetChatId, uploadAssistantMessage.id, {
+              isUploadMessage: false
+            });
             
           } catch (error) {
             console.error('Error uploading files:', error);
-          } finally {
-            // We don't set loading to false here because we're going to start processing
+            // Update the upload message to show error
+            updateMessageInChat(targetChatId, uploadAssistantMessage.id, {
+              content: 'שגיאה בהעלאת הקבצים. נא לנסות שוב.',
+              status: 'complete',
+              isUploadMessage: false
+            });
+            // If upload fails, stop loading and don't proceed
+            setLoadingChats(prev => ({
+              ...prev,
+              [targetChatId]: false
+            }));
+            return;
           }
         }
       }
       
-      // Always add an assistant message, even for empty/file messages
-      const assistantMessageObj = addMessageToChat(
-        targetChatId,
-        'assistant',
-        '',
-        'streaming'
-      );
-      
-      // Track pending message
-      pendingMessagesRef.current[targetChatId] = assistantMessageObj.id;
-      
-      setLoadingChats(prev => ({
-        ...prev,
-        [targetChatId]: true
-      }));
-      
-      // We already determined if we're in image creator mode above, so we use that value directly
-      if (isInImageCreatorMode) {
-        updateMessageInChat(targetChatId, assistantMessageObj.id, { 
-          isImageGeneration: true 
-        });
-        generateImage(input, imageOptions!, targetChatId, assistantMessageObj.id);
-      } 
-      else if (userMessage.trim()) {
-        // Get the final tool state from the map now that we've created the chat
-        const effectiveToolState = toolStatesMap[targetChatId] || defaultToolState;
+      // Only create assistant message and send query if there's a text message to process
+      if (userMessage.trim()) {
+        // If we have files, reuse the upload assistant message, otherwise create new one
+        let assistantMessageObj;
+        if (nonImageFiles.length > 0) {
+          // Find the upload assistant message and reuse it for the query
+          const messages = messagesMap[targetChatId] || [];
+          assistantMessageObj = messages.find(msg => 
+            msg.role === 'assistant' && 
+            msg.status === 'streaming' && 
+            !msg.content
+          );
+          
+          if (assistantMessageObj) {
+            // Clear upload flag and prepare for streaming response
+            updateMessageInChat(targetChatId, assistantMessageObj.id, {
+              isUploadMessage: false,
+              status: 'streaming'
+            });
+          } else {
+            // Fallback: create new assistant message
+            assistantMessageObj = addMessageToChat(
+              targetChatId,
+              'assistant',
+              '',
+              'streaming'
+            );
+          }
+        } else {
+          // No files, create new assistant message
+          assistantMessageObj = addMessageToChat(
+            targetChatId,
+            'assistant',
+            '',
+            'streaming'
+          );
+        }
         
-        // Get knowledge base name if needed
-        const kbName = effectiveToolState.isKnowledgeBasesEnabled && kbOptions ? kbOptions.kbName : undefined;
+        // Track pending message
+        pendingMessagesRef.current[targetChatId] = assistantMessageObj.id;
         
-        // Use the unified function for all query requests
-        await createQueryRequest(userMessage, assistantMessageObj.id, targetChatId, imageFiles, kbName);
+        // We already determined if we're in image creator mode above, so we use that value directly
+        if (isInImageCreatorMode) {
+          updateMessageInChat(targetChatId, assistantMessageObj.id, { 
+            isImageGeneration: true 
+          });
+          generateImage(input, imageOptions!, targetChatId, assistantMessageObj.id);
+        } 
+        else {
+          // Get the final tool state from the map now that we've created the chat
+          const effectiveToolState = toolStatesMap[targetChatId] || defaultToolState;
+          
+          // Get knowledge base name if needed
+          const kbName = effectiveToolState.isKnowledgeBasesEnabled && kbOptions ? kbOptions.kbName : undefined;
+          
+          // Use the unified function for all query requests
+          await createQueryRequest(userMessage, assistantMessageObj.id, targetChatId, imageFiles, kbName);
+        }
+      } else {
+        // If no text message, just stop loading since we only uploaded files
+        setLoadingChats(prev => ({
+          ...prev,
+          [targetChatId]: false
+        }));
       }
   
     } catch (error) {
@@ -1028,6 +1091,7 @@ export function useMessages({
           status: 'complete',
           imageResult: {
             url: result.url,
+            prompt: prompt,
             filename: result.filename,
             timestamp: result.created,
             isVariation: options.image !== undefined
