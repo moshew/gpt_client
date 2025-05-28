@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useLayoutEffect, useState, useMemo, useCallback } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useState } from 'react';
 import { Message } from '../types';
 import { ChatMessageUser } from './ChatMessageUser';
 import { ChatMessageAssistant } from './ChatMessageAssistant';
@@ -9,8 +9,6 @@ interface ChatAreaProps {
   onCopyCode: (code: string) => void;
   onEditCode: (code: string) => void;
   activeChat: string | null;
-  isInitializing?: boolean;
-  loadingChats?: Record<string, boolean>;
 }
 
 export function ChatArea({ 
@@ -18,9 +16,7 @@ export function ChatArea({
   isLoading, 
   onCopyCode, 
   onEditCode, 
-  activeChat,
-  isInitializing = false,
-  loadingChats = {}
+  activeChat
 }: ChatAreaProps) {
   const chatRef = useRef<HTMLDivElement>(null);
   const scrollTimeoutRef = useRef<number | null>(null);
@@ -31,36 +27,42 @@ export function ChatArea({
   const previousMessagesLengthForScrollRef = useRef(messages.length);
   const previousActiveChatForScrollRef = useRef(activeChat);
   const [lastAssistantMinHeight, setLastAssistantMinHeight] = useState(0);
-  
-  // Simplified visibility logic - show content when we have messages and not initializing
-  const isContentVisible = messages.length > 0 && !isInitializing;
-
-  // Memoize the current chat loading state to prevent unnecessary re-calculations
-  const isCurrentChatLoading = useMemo(() => {
-    return activeChat ? (loadingChats[activeChat] || false) : false;
-  }, [activeChat, loadingChats]);
+  const [isContentVisible, setIsContentVisible] = useState(false);
 
   // Function to hide header separator
-  const hideHeaderSeparator = useCallback(() => {
+  const hideHeaderSeparator = () => {
     const separator = document.getElementById('header-separator');
     if (separator) {
       separator.style.opacity = '0';
     }
-  }, []);
+  };
 
   // Reset header separator when messages are empty or chat changes
   useEffect(() => {
     if (messages.length === 0 || activeChat === null) {
       hideHeaderSeparator();
     }
-  }, [messages.length, activeChat, hideHeaderSeparator]);
+  }, [messages.length, activeChat]);
+
+  // Control content visibility to prevent flickering
+  useEffect(() => {
+    if (messages.length > 0) {
+      // Small delay to ensure DOM is ready
+      const timer = setTimeout(() => {
+        setIsContentVisible(true);
+      }, 0);
+      return () => clearTimeout(timer);
+    } else {
+      setIsContentVisible(false);
+    }
+  }, [messages.length, activeChat]);
 
   // Hide header separator for empty state
   useEffect(() => {
     if (messages.length === 0 && !isLoading) {
       hideHeaderSeparator();
     }
-  }, [messages.length, isLoading, hideHeaderSeparator]);
+  }, [messages.length, isLoading]);
 
   // Handle scroll events and header separator opacity
   useEffect(() => {
@@ -92,7 +94,7 @@ export function ChatArea({
     }
   }, [messages.length, activeChat]);
 
-  const scrollToBottom = useCallback((immediate = false) => {
+  const scrollToBottom = (immediate = false) => {
     if (chatRef.current) {
       const endPosition = chatRef.current.scrollHeight - chatRef.current.clientHeight;
       
@@ -101,20 +103,19 @@ export function ChatArea({
         behavior: immediate ? 'auto' : 'smooth'
       });
     }
-  }, []);
+  };
 
   // Track chat changes for reference updates only
   useEffect(() => {
     if (activeChat !== previousActiveChatRef.current) {
       hideHeaderSeparator();
-      // Update the ref when chat changes
       previousActiveChatRef.current = activeChat;
       previousMessagesLengthRef.current = messages.length;
     } 
     else if (messages.length !== previousMessagesLengthRef.current) {
       previousMessagesLengthRef.current = messages.length;
     }
-  }, [messages, activeChat, hideHeaderSeparator]);
+  }, [messages, activeChat]);
 
   // Handle auto-scrolling only for new user messages and streaming responses
   useEffect(() => {
@@ -145,7 +146,7 @@ export function ChatArea({
         window.clearTimeout(scrollTimeoutRef.current);
       }
     };
-  }, [messages, isLoading, activeChat, scrollToBottom]);
+  }, [messages, isLoading, activeChat]);
 
   useEffect(() => {
     const calculateMinHeight = () => {
@@ -189,7 +190,7 @@ export function ChatArea({
       ref={chatRef}
     >
       <div 
-        className="max-w-3xl mx-auto w-full px-4 transition-opacity duration-300 ease-in-out"
+        className="max-w-3xl mx-auto w-full px-4 transition-opacity duration-10"
         style={{ 
           opacity: isContentVisible ? 1 : 0,
           minHeight: '100%'

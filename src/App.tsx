@@ -403,8 +403,6 @@ function App() {
                       onCopyCode={copyToClipboard}
                       onEditCode={handleEditCode}
                       activeChat={activeChat}
-                      isInitializing={isInitializing || (activeChat ? !!loadingChats[activeChat] : false)}
-                      loadingChats={loadingChats}
                     />
                     <ChatInput
                       input={currentInput}
