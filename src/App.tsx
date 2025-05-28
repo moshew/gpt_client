@@ -160,12 +160,31 @@ function App() {
   };
 
   const handleLogoutClick = () => {
+    // Reset UI to home state before logout
+    resetToHomeState();
+    
     handleLogout(() => {
       setIsLeftPanelOpen(false);
       clearChats();
       clearMessages();
       setChatInputs({});
     });
+  };
+
+  // Helper function to reset UI to home state (close code editor, hide separator)
+  const resetToHomeState = () => {
+    // Close code editor if it's open
+    if (editingCode !== null) {
+      setEditingCode(null);
+      setIsLeftPanelOpen(false);
+      document.body.style.overflow = 'auto';
+    }
+    
+    // Hide header separator when returning to home state
+    const separator = document.getElementById('header-separator');
+    if (separator) {
+      separator.style.opacity = '0';
+    }
   };
 
   const handleNewChat = () => {
@@ -177,11 +196,8 @@ function App() {
     const previousNewChatInput = chatInputs['new'] || '';
     setChatInputs({ 'new': previousNewChatInput });
     
-    // Force hide the header separator when creating new chat
-    const separator = document.getElementById('header-separator');
-    if (separator) {
-      separator.style.opacity = '0';
-    }
+    // Reset UI to home state
+    resetToHomeState();
   };
 
 

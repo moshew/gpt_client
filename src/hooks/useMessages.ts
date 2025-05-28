@@ -379,7 +379,7 @@ export function useMessages({
   };
 
   // Upload files to chat and return uploaded filenames
-  const uploadFilesToChat = async (chatId: string, files: File[]): Promise<{uploaded: boolean, docFiles: ChatFile[], codeFiles: ChatFile[]}> => {
+  const uploadFilesToChat = async (chatId: string, files: File[], explicitToolState?: ToolState): Promise<{uploaded: boolean, docFiles: ChatFile[], codeFiles: ChatFile[]}> => {
     if (!user?.token) {
       throw new Error('User not authenticated');
     }
@@ -388,8 +388,8 @@ export function useMessages({
     setCurrentUploadStatus({ isUploading: true, isIndexing: false });
 
     try {
-      // Get current tool state to determine file type
-      const currentState = toolStatesMap[chatId] || toolStatesMap['new'] || defaultToolState;
+      // Get current tool state to determine file type - use explicit state if provided
+      const currentState = explicitToolState || toolStatesMap[chatId] || toolStatesMap['new'] || defaultToolState;
       const fileType = currentState.isCodeAnalysisEnabled ? "code" : "doc";
 
       const formData = new FormData();
@@ -461,7 +461,8 @@ export function useMessages({
     chatId: string, 
     imageFiles: File[] = [], 
     kbName?: string,
-    keepOriginalFiles: boolean = false
+    keepOriginalFiles: boolean = false,
+    explicitToolState?: ToolState
   ) => {
     if (eventSourcesRef.current[chatId]) {
       eventSourcesRef.current[chatId].close();
@@ -469,8 +470,8 @@ export function useMessages({
     }
   
     try {
-      // Get the effective tool state
-      const effectiveToolState = toolStatesMap[chatId] || defaultToolState;
+      // Get the effective tool state - use explicit state if provided, otherwise fall back to map
+      const effectiveToolState = explicitToolState || toolStatesMap[chatId] || defaultToolState;
       
       // Use unified query endpoint
       const baseUrl = `${config.apiBaseUrl}/query`;
@@ -718,7 +719,7 @@ export function useMessages({
               isUploadMessage: true
             });
             
-            const uploadResult = await uploadFilesToChat(targetChatId, nonImageFiles);
+            const uploadResult = await uploadFilesToChat(targetChatId, nonImageFiles, currentToolState);
             
             if (uploadResult.uploaded) {
               updateChatFiles(targetChatId, uploadResult.docFiles, uploadResult.codeFiles);
@@ -742,14 +743,11 @@ export function useMessages({
               generateImage(input, imageOptions!, targetChatId, assistantMessage.id);
             } 
             else {
-              // Get the final tool state from the map now that we've created the chat
-              const effectiveToolState = toolStatesMap[targetChatId] || defaultToolState;
-              
               // Get knowledge base name if needed
-              const kbName = effectiveToolState.isKnowledgeBasesEnabled && kbOptions ? kbOptions.kbName : undefined;
+              const kbName = currentToolState.isKnowledgeBasesEnabled && kbOptions ? kbOptions.kbName : undefined;
               
               // Use the unified function for all query requests
-              await createQueryRequest(userMessage, assistantMessage.id, targetChatId, imageFiles, kbName, keepOriginalFiles);
+              await createQueryRequest(userMessage, assistantMessage.id, targetChatId, imageFiles, kbName, keepOriginalFiles, currentToolState);
             }
           } else {
             // Only non-image files uploaded, no query needed - complete the assistant message and stop loading
