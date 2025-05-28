@@ -16,6 +16,8 @@ interface SidebarProps {
   onSelectChat: (chatId: string) => void;
   onToolsChange: (toolName: string, enabled: boolean) => void;
   toolStatesMap: Record<string, ToolState>;
+  keepOriginalFilesMap: Record<string, boolean>;
+  onKeepOriginalFilesChange: (chatId: string, checked: boolean) => void;
 }
 
 export function Sidebar({ 
@@ -27,7 +29,9 @@ export function Sidebar({
   onNewChat, 
   onSelectChat, 
   onToolsChange,
-  toolStatesMap
+  toolStatesMap,
+  keepOriginalFilesMap,
+  onKeepOriginalFilesChange
 }: SidebarProps) {
   // Default state for tools (all disabled)
   const defaultToolState = {
@@ -148,6 +152,8 @@ export function Sidebar({
           docFiles={selectedChat.docFiles}
           codeFiles={selectedChat.codeFiles}
           isCodeAnalysisEnabled={tools.codeAnalysis}
+          keepOriginalFiles={keepOriginalFilesMap[selectedChat.id] || false}
+          onKeepOriginalFilesChange={(checked) => onKeepOriginalFilesChange(selectedChat.id, checked)}
         />
       )}
     </div>

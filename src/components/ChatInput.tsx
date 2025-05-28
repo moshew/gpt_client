@@ -10,7 +10,7 @@ interface ChatInputProps {
   input: string;
   isLoading: boolean;
   onChange: (value: string) => void;
-  onSubmit: (e: React.FormEvent, files?: File[], imageOptions?: ImageOptions, kbOptions?: KnowledgeBaseOptions) => void;
+  onSubmit: (e: React.FormEvent, files?: File[], imageOptions?: ImageOptions, kbOptions?: KnowledgeBaseOptions, keepOriginalFiles?: boolean) => void;
   onStop?: () => void;
   messages: Message[];
   isInitializing?: boolean;
@@ -22,6 +22,7 @@ interface ChatInputProps {
   isImageCreatorEnabled?: boolean;
   isKnowledgeBasesEnabled?: boolean;
   registerAddFiles?: (addFilesFunc: (files: File[]) => void) => void;
+  keepOriginalFiles?: boolean;
 }
 
 export function ChatInput({ 
@@ -36,7 +37,8 @@ export function ChatInput({
   chatId,
   isImageCreatorEnabled = false,
   isKnowledgeBasesEnabled = false,
-  registerAddFiles
+  registerAddFiles,
+  keepOriginalFiles = false
 }: ChatInputProps) {
   const showHelpText = messages.length === 0 && !isInitializing;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -216,14 +218,14 @@ export function ChatInput({
     
     // Prepare options based on active tool
     if (isImageCreatorEnabled) {
-      onSubmit(e, undefined, imageOptions);
+      onSubmit(e, undefined, imageOptions, undefined, keepOriginalFiles);
     } else if (isKnowledgeBasesEnabled) {
       const kbOptions: KnowledgeBaseOptions = {
         kbName: selectedKb
       };
-      onSubmit(e, undefined, undefined, kbOptions);
+      onSubmit(e, undefined, undefined, kbOptions, keepOriginalFiles);
     } else {
-      onSubmit(e, files);
+      onSubmit(e, files, undefined, undefined, keepOriginalFiles);
     }
     
     // Clear selected files

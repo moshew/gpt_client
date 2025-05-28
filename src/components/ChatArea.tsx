@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useLayoutEffect, useState } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useState, useMemo, useCallback } from 'react';
 import { Message } from '../types';
 import { ChatMessageUser } from './ChatMessageUser';
 import { ChatMessageAssistant } from './ChatMessageAssistant';
@@ -9,6 +9,8 @@ interface ChatAreaProps {
   onCopyCode: (code: string) => void;
   onEditCode: (code: string) => void;
   activeChat: string | null;
+  isInitializing?: boolean;
+  loadingChats?: Record<string, boolean>;
 }
 
 export function ChatArea({ 
@@ -16,7 +18,9 @@ export function ChatArea({
   isLoading, 
   onCopyCode, 
   onEditCode, 
-  activeChat
+  activeChat,
+  isInitializing = false,
+  loadingChats = {}
 }: ChatAreaProps) {
   const chatRef = useRef<HTMLDivElement>(null);
   const scrollTimeoutRef = useRef<number | null>(null);
@@ -24,22 +28,39 @@ export function ChatArea({
   const isUserScrollingRef = useRef(false);
   const previousMessagesLengthRef = useRef(messages.length);
   const previousActiveChatRef = useRef(activeChat);
+  const previousMessagesLengthForScrollRef = useRef(messages.length);
+  const previousActiveChatForScrollRef = useRef(activeChat);
   const [lastAssistantMinHeight, setLastAssistantMinHeight] = useState(0);
+  
+  // Simplified visibility logic - show content when we have messages and not initializing
+  const isContentVisible = messages.length > 0 && !isInitializing;
+
+  // Memoize the current chat loading state to prevent unnecessary re-calculations
+  const isCurrentChatLoading = useMemo(() => {
+    return activeChat ? (loadingChats[activeChat] || false) : false;
+  }, [activeChat, loadingChats]);
 
   // Function to hide header separator
-  const hideHeaderSeparator = () => {
+  const hideHeaderSeparator = useCallback(() => {
     const separator = document.getElementById('header-separator');
     if (separator) {
       separator.style.opacity = '0';
     }
-  };
+  }, []);
 
   // Reset header separator when messages are empty or chat changes
   useEffect(() => {
     if (messages.length === 0 || activeChat === null) {
       hideHeaderSeparator();
     }
-  }, [messages.length, activeChat]);
+  }, [messages.length, activeChat, hideHeaderSeparator]);
+
+  // Hide header separator for empty state
+  useEffect(() => {
+    if (messages.length === 0 && !isLoading) {
+      hideHeaderSeparator();
+    }
+  }, [messages.length, isLoading, hideHeaderSeparator]);
 
   // Handle scroll events and header separator opacity
   useEffect(() => {
@@ -66,18 +87,12 @@ export function ChatArea({
 
     const chatElement = chatRef.current;
     if (chatElement) {
-      // Reset scroll position when chat changes
-      if (activeChat !== previousActiveChatRef.current || messages.length === 0) {
-        chatElement.scrollTop = 0;
-        hideHeaderSeparator();
-      }
-      
       chatElement.addEventListener('scroll', handleScroll);
       return () => chatElement.removeEventListener('scroll', handleScroll);
     }
   }, [messages.length, activeChat]);
 
-  const scrollToBottom = (immediate = false) => {
+  const scrollToBottom = useCallback((immediate = false) => {
     if (chatRef.current) {
       const endPosition = chatRef.current.scrollHeight - chatRef.current.clientHeight;
       
@@ -86,34 +101,33 @@ export function ChatArea({
         behavior: immediate ? 'auto' : 'smooth'
       });
     }
-  };
+  }, []);
 
-  // Use useLayoutEffect only for chat switching - use immediate scrolling
-  useLayoutEffect(() => {
-    // Reset separator when active chat changes
+  // Track chat changes for reference updates only
+  useEffect(() => {
     if (activeChat !== previousActiveChatRef.current) {
       hideHeaderSeparator();
-      if (chatRef.current) {
-        chatRef.current.scrollTop = 0;
-      }
-      //scrollToBottom(true);
+      // Update the ref when chat changes
       previousActiveChatRef.current = activeChat;
       previousMessagesLengthRef.current = messages.length;
     } 
-    // For message length changes in the same chat, just update the ref
     else if (messages.length !== previousMessagesLengthRef.current) {
       previousMessagesLengthRef.current = messages.length;
     }
-  }, [messages, activeChat]);
+  }, [messages, activeChat, hideHeaderSeparator]);
 
-  // Handle auto-scrolling based on new messages - with smooth animation
+  // Handle auto-scrolling only for new user messages and streaming responses
   useEffect(() => {
     if (!isUserScrollingRef.current && messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
+      const messagesLengthChanged = messages.length !== previousMessagesLengthForScrollRef.current;
+      const activeChatChanged = activeChat !== previousActiveChatForScrollRef.current;
+      const wasEmpty = previousMessagesLengthForScrollRef.current === 0;
+      
+      // Only auto-scroll for:
+      // New assistant messages (when messages length changed and last message is assistant and chat didn't change and wasn't loading from empty)
       const shouldAutoScroll = 
-        lastMessage?.role === 'user' || 
-        (lastMessage?.status === 'streaming' && lastMessage.content === '') ||
-        isLoading;
+        (messagesLengthChanged && !activeChatChanged && !wasEmpty && lastMessage?.role === 'assistant');
       
       if (shouldAutoScroll) {
         setTimeout(() => {
@@ -122,12 +136,16 @@ export function ChatArea({
       }
     }
     
+    // עדכון ה-refs אחרי הבדיקה
+    previousMessagesLengthForScrollRef.current = messages.length;
+    previousActiveChatForScrollRef.current = activeChat;
+    
     return () => {
       if (scrollTimeoutRef.current) {
         window.clearTimeout(scrollTimeoutRef.current);
       }
     };
-  }, [messages, isLoading]);
+  }, [messages, isLoading, activeChat, scrollToBottom]);
 
   useEffect(() => {
     const calculateMinHeight = () => {
@@ -164,16 +182,19 @@ export function ChatArea({
   // Check if we should display loading dots in the last assistant message
   const shouldShowLoadingDots = isLoading && messages.length > 0 && !messages[messages.length - 1]?.content;
   
-  // Don't render anything if there are no messages to allow ChatInput to center
-  if (messages.length === 0 && !isLoading) {
-    // Important: Make sure separator is hidden for empty chat
-    hideHeaderSeparator();
-    return <div ref={chatRef} className="flex-1 overflow-y-auto min-h-0"></div>;
-  }
-
+  // Always render the chat container to maintain consistent DOM structure
   return (
-    <div className="flex-1 overflow-y-auto min-h-0" ref={chatRef}>
-      <div className="max-w-3xl mx-auto w-full px-4">
+    <div 
+      className="flex-1 min-h-0 chat-area-scroll" 
+      ref={chatRef}
+    >
+      <div 
+        className="max-w-3xl mx-auto w-full px-4 transition-opacity duration-300 ease-in-out"
+        style={{ 
+          opacity: isContentVisible ? 1 : 0,
+          minHeight: '100%'
+        }}
+      >
         {messages.map((message) => (
           message.role === 'user' ? (
             <ChatMessageUser

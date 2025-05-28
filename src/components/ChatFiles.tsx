@@ -6,6 +6,8 @@ interface ChatFilesProps {
   docFiles?: ChatFile[];
   codeFiles?: ChatFile[];
   isCodeAnalysisEnabled?: boolean;
+  keepOriginalFiles?: boolean;
+  onKeepOriginalFilesChange?: (checked: boolean) => void;
 }
 
 interface FileNode {
@@ -16,7 +18,7 @@ interface FileNode {
   path: string;
 }
 
-export function ChatFiles({ docFiles, codeFiles, isCodeAnalysisEnabled = false }: ChatFilesProps) {
+export function ChatFiles({ docFiles, codeFiles, isCodeAnalysisEnabled = false, keepOriginalFiles, onKeepOriginalFilesChange }: ChatFilesProps) {
   // Always initialize hooks first
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
 
@@ -155,8 +157,8 @@ export function ChatFiles({ docFiles, codeFiles, isCodeAnalysisEnabled = false }
           return (
             <div key={node.path}>
               <div
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-gray-700 hover:bg-gray-100 cursor-pointer transition-colors duration-150 group"
-                style={{ paddingLeft: `${12 + paddingLeft}px` }}
+                className="flex items-center gap-2 px-0 py-0.5 rounded-lg text-gray-700 cursor-pointer transition-colors duration-150 group"
+                style={{ paddingLeft: `${paddingLeft}px` }}
                 onClick={() => toggleFolder(node.path)}
                 title={`${node.path} (${fileCount} file${fileCount !== 1 ? 's' : ''})`}
               >
@@ -188,8 +190,8 @@ export function ChatFiles({ docFiles, codeFiles, isCodeAnalysisEnabled = false }
           return (
             <div
               key={node.file?.id || node.path}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-gray-700 hover:bg-gray-100 cursor-pointer transition-colors duration-150"
-              style={{ paddingLeft: `${12 + paddingLeft + 19}px` }}
+              className="flex items-center gap-2 px-0 py-0.5 rounded-lg text-gray-700 cursor-pointer transition-colors duration-150"
+              style={{ paddingLeft: `${paddingLeft + 19}px` }}
               title={node.path}
             >
               <File className="w-4 h-4 flex-shrink-0 text-gray-500" />
@@ -205,9 +207,9 @@ export function ChatFiles({ docFiles, codeFiles, isCodeAnalysisEnabled = false }
     return files.map((file) => (
       <div
         key={file.id}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-gray-700 hover:bg-gray-100 cursor-pointer"
+        className="flex items-center gap-2 px-0 py-0.5 rounded-lg text-gray-700 cursor-pointer transition-colors duration-150"
       >
-        <File className="w-4 h-4 flex-shrink-0" />
+        <File className="w-4 h-4 flex-shrink-0 text-gray-500" />
         <span className="truncate text-sm">{file.file_name}</span>
       </div>
     ));
@@ -218,10 +220,40 @@ export function ChatFiles({ docFiles, codeFiles, isCodeAnalysisEnabled = false }
   return (
     <>
       {filesToDisplay.length > 0 && (
-        <div className="mt-auto p-3 border-t border-gray-200">
-          <h2 className="text-base font-medium text-gray-700 mb-2">{title}</h2>
-          <div className={`space-y-1 ${filesToDisplay.length > 5 ? 'max-h-40 overflow-y-auto pr-2' : ''}`}>
-            {hasDirectories ? renderFileTree(fileTree) : renderFlatList(filesToDisplay)}
+        <div 
+          className={`mt-auto border-t border-gray-200 ${filesToDisplay.length > 5 ? 'max-h-52 overflow-y-auto scrollbar-thin' : ''}`}
+          style={filesToDisplay.length > 5 ? {
+            scrollbarWidth: 'thin',
+            scrollbarColor: '#cbd5e0 transparent'
+          } : {}}
+        >
+          {/* Sticky title at the top */}
+          <div className="sticky top-0 bg-gray-50 px-5 pt-3 pb-1 z-10">
+            <h2 className="text-base font-medium text-gray-700 mb-0">{title}</h2>
+          </div>
+          
+          {/* Content area */}
+          <div className="px-5 pb-3">
+            <div className="py-1">
+              <div className="space-y-0">
+                {hasDirectories ? renderFileTree(fileTree) : renderFlatList(filesToDisplay)}
+              </div>
+            </div>
+            
+            {/* Checkbox for original files - only in document mode */}
+            {!isCodeAnalysisEnabled && onKeepOriginalFilesChange && (
+              <div className="pt-1 mt-2 border-t border-gray-100">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={keepOriginalFiles || false}
+                    onChange={(e) => onKeepOriginalFilesChange(e.target.checked)}
+                    className="w-3 h-3 text-blue-600 rounded"
+                  />
+                  <span className="text-sm text-gray-400">Send original (unindexed) files</span>
+                </label>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -27,10 +27,11 @@ function App() {
   const [isSwitchingChat, setIsSwitchingChat] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState<File[]>([]);
+  const [keepOriginalFilesMap, setKeepOriginalFilesMap] = useState<Record<string, boolean>>({});
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<{addFiles: (files: File[]) => void} | null>(null);
 
-  const { user, isAuthenticating, handleLogin, handleLogout } = useAuth();
+  const { user, isAuthenticating, isInitializing: isAuthInitializing, hasTokenInUrl, handleLogin, handleLogout } = useAuth();
   const { 
     chats, 
     activeChat, 
@@ -92,8 +93,24 @@ function App() {
   const [isHtmlContent, setIsHtmlContent] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
 
+  // הודעות פתיחה שונות
+  const welcomeMessages = [
+    "Where should we begin?",
+    "What are you working on?",
+    "Hey, ready to dive in?",
+    "What's on the agenda today?",
+    "What's on your mind today?",
+    "Ready when you are."
+  ];
+
+  // בחירת הודעה רנדומלית (מחושבת פעם אחת בטעינה)
+  const [welcomeMessage] = useState(() => {
+    const randomIndex = Math.floor(Math.random() * welcomeMessages.length);
+    return welcomeMessages[randomIndex];
+  });
+
   const currentInput = activeChat ? (chatInputs[activeChat] || '') : (chatInputs['new'] || '');
-  
+
   const handleInputChange = (value: string) => {
     if (activeChat) {
       setChatInputs(prev => ({
@@ -108,7 +125,7 @@ function App() {
     }
   };
 
-  const handleFormSubmit = async (e: React.FormEvent, files?: File[], imageOptions?: ImageOptions, kbOptions?: KnowledgeBaseOptions) => {
+  const handleFormSubmit = async (e: React.FormEvent, files?: File[], imageOptions?: ImageOptions, kbOptions?: KnowledgeBaseOptions, keepOriginalFiles?: boolean) => {
     e.preventDefault();
     const input = activeChat ? chatInputs[activeChat] : chatInputs['new'];
     
@@ -120,13 +137,20 @@ function App() {
       isCreatingChat
     ) return;
   
-    setChatInputs(prev => ({
-      ...prev,
-      [activeChat || 'new']: ''
-    }));
+    // Get the keepOriginalFiles value for this specific chat
+    const chatKeepOriginalFiles = activeChat ? (keepOriginalFilesMap[activeChat] || false) : false;
     
     // Pass the knowledge base options to handleSubmit if they exist
-    await handleSubmit(input, files, imageOptions, kbOptions);
+    // handleSubmit will clear the input only if the user is authenticated
+    const success = await handleSubmit(input, files, imageOptions, kbOptions, chatKeepOriginalFiles);
+    
+    // Clear input only if submission was successful (user was authenticated)
+    if (success) {
+      setChatInputs(prev => ({
+        ...prev,
+        [activeChat || 'new']: ''
+      }));
+    }
   };
 
   const handleStopQuery = () => {
@@ -269,6 +293,11 @@ function App() {
             onSelectChat={handleSelectChat}
             onToolsChange={handleToolsChange}
             toolStatesMap={toolStatesMap}
+            keepOriginalFilesMap={keepOriginalFilesMap}
+            onKeepOriginalFilesChange={(chatId: string, value: boolean) => setKeepOriginalFilesMap(prev => ({
+              ...prev,
+              [chatId]: value
+            }))}
           />
         </>
       )}
@@ -295,6 +324,8 @@ function App() {
                 onLogin={handleLogin}
                 onLogout={handleLogoutClick}
                 isAuthenticating={isAuthenticating}
+                isInitializing={isAuthInitializing}
+                hasTokenInUrl={hasTokenInUrl}
               />
             </div>
             {editingCode !== null && (
@@ -314,9 +345,11 @@ function App() {
                   onLogin={handleLogin}
                   onLogout={handleLogoutClick}
                   isAuthenticating={isAuthenticating}
+                  isInitializing={isAuthInitializing}
                   isHTML={isHtmlContent}
                   isPreviewMode={isPreviewMode}
                   onTogglePreview={() => setIsPreviewMode(!isPreviewMode)}
+                  hasTokenInUrl={hasTokenInUrl}
                 />
               </div>
             )}
@@ -342,7 +375,7 @@ function App() {
                 {shouldShowEmptyState ? (
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="w-full max-w-3xl mx-auto px-4 flex flex-col items-center -mt-40">
-                      <h2 className="text-[1.7rem] font-normal text-gray-700 mb-8">Where should we begin?</h2>
+                      <h2 className="text-[1.7rem] font-normal text-gray-700 mb-8">{welcomeMessage}</h2>
                       <div className="w-full">
                         <ChatInput
                           input={currentInput}
@@ -357,6 +390,7 @@ function App() {
                           isImageCreatorEnabled={isImageCreatorEnabled}
                           isKnowledgeBasesEnabled={isKnowledgeBasesEnabled}
                           registerAddFiles={registerChatInputRef}
+                          keepOriginalFiles={activeChat ? (keepOriginalFilesMap[activeChat] || false) : false}
                         />
                       </div>
                     </div>
@@ -369,6 +403,8 @@ function App() {
                       onCopyCode={copyToClipboard}
                       onEditCode={handleEditCode}
                       activeChat={activeChat}
+                      isInitializing={isInitializing || (activeChat ? !!loadingChats[activeChat] : false)}
+                      loadingChats={loadingChats}
                     />
                     <ChatInput
                       input={currentInput}
@@ -383,6 +419,7 @@ function App() {
                       isImageCreatorEnabled={isImageCreatorEnabled}
                       isKnowledgeBasesEnabled={isKnowledgeBasesEnabled}
                       registerAddFiles={registerChatInputRef}
+                      keepOriginalFiles={activeChat ? (keepOriginalFilesMap[activeChat] || false) : false}
                     />
                   </div>
                 )}

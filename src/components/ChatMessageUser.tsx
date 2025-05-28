@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Message, containsHebrew } from '../types';
 import { Maximize2, X } from 'lucide-react';
 
@@ -9,14 +9,64 @@ interface ChatMessageUserProps {
 // פורמט של תמונה ב-JSON
 interface ImageData {
   type: 'image';
-  data: string;      // נתוני base64 (ללא הקידומת data:image/...)
+  data?: string;      // נתוני base64 (ללא הקידומת data:image/...)
   format?: string;   // פורמט התמונה (png, jpeg, וכו'), ברירת מחדל: png
   alt?: string;      // טקסט חלופי לתמונה, אופציונלי
+  // New format for URL-based images
+  url?: string;      // URL של התמונה
+  filename?: string; // שם הקובץ
+  created?: string;  // תאריך יצירה
 }
 
 export function ChatMessageUser({ message }: ChatMessageUserProps) {
   const [showFullImage, setShowFullImage] = useState(false);
   const isHebrew = containsHebrew(message.content);
+  
+  // Memoize image parsing to prevent flickering
+  const imageInfo = useMemo(() => {
+    try {
+      const data = JSON.parse(message.content);
+      
+      if (data && data.type === 'image') {
+        const imageData = data as ImageData;
+        
+        // יצירת URL לתמונה - תמיכה בשני פורמטים
+        let imageUrl = '';
+        
+        // פורמט חדש - URL ישיר
+        if (imageData.url) {
+          imageUrl = imageData.url;
+        }
+        // פורמט ישן - base64 data
+        else if (imageData.data) {
+          if (imageData.data.startsWith('data:image/')) {
+            imageUrl = imageData.data;
+          } else {
+            const format = imageData.format || 'png';
+            imageUrl = `data:image/${format};base64,${imageData.data}`;
+          }
+        }
+        
+        if (imageUrl) {
+          return {
+            isImage: true,
+            imageData,
+            imageUrl
+          };
+        }
+      }
+    } catch (e) {
+      // Not an image or invalid JSON
+    }
+    
+    return {
+      isImage: false,
+      imageData: null,
+      imageUrl: ''
+    };
+  }, [message.content]);
+  
+  const { isImage, imageData, imageUrl } = imageInfo;
   
   // Handle ESC key to close modal
   useEffect(() => {
@@ -40,62 +90,23 @@ export function ChatMessageUser({ message }: ChatMessageUserProps) {
     };
   }, [showFullImage]);
   
-  // בדיקה האם התוכן הוא תמונה בפורמט JSON
-  const isImageContent = (): boolean => {
-    try {
-      const data = JSON.parse(message.content);
-      return data && data.type === 'image' && !!data.data;
-    } catch (e) {
-      return false;
-    }
-  };
-  
-  // חילוץ נתוני התמונה מה-JSON
-  const getImageData = (): ImageData | null => {
-    if (!isImageContent()) return null;
-    
-    try {
-      return JSON.parse(message.content) as ImageData;
-    } catch (e) {
-      console.error('Error parsing image data:', e);
-      return null;
-    }
-  };
-  
-  // יצירת URL לתמונה מנתוני ה-base64
-  const getImageUrl = (): string => {
-    const imageData = getImageData();
-    if (!imageData) return '';
-    
-    // אם נתוני התמונה כבר מכילים data:image, החזר כמות שהם
-    if (imageData.data.startsWith('data:image/')) {
-      return imageData.data;
-    }
-    
-    // אחרת, הוסף את הקידומת המתאימה
-    const format = imageData.format || 'png';
-    return `data:image/${format};base64,${imageData.data}`;
-  };
-  
-  const imageData = getImageData();
-  const imageUrl = getImageUrl();
-  const isImage = !!imageData;
-
   const renderUserContent = () => {
     if (isImage && imageUrl) {
       return (
-        <div className="image-container relative">
+        <div 
+          className="image-container relative group cursor-pointer"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setShowFullImage(true);
+          }}
+        >
           <img 
             src={imageUrl} 
             alt={imageData?.alt || 'User uploaded image'} 
-            className="max-w-full max-h-[300px] object-contain cursor-pointer rounded-md" 
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setShowFullImage(true);
-            }}
+            className="max-w-full max-h-[300px] object-contain rounded-md" 
           />
-          <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-30 transition-opacity flex items-center justify-center opacity-0 hover:opacity-100 pointer-events-none">
+          <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-opacity flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
             <Maximize2 className="w-5 h-5 text-white" />
           </div>
         </div>

@@ -27,6 +27,8 @@ interface HeaderProps {
   onLogin: () => void;
   onLogout: () => void;
   isAuthenticating?: boolean;
+  isInitializing?: boolean;
+  hasTokenInUrl?: boolean;
   isHTML?: boolean;
   isPreviewMode?: boolean;
   onTogglePreview?: () => void;
@@ -48,6 +50,8 @@ export function Header({
   onLogin,
   onLogout,
   isAuthenticating = false,
+  isInitializing = false,
+  hasTokenInUrl = false,
   isHTML = false,
   isPreviewMode = false,
   onTogglePreview
@@ -227,7 +231,12 @@ export function Header({
               </button>
             )}
             
-            {!user ? (
+            {/* מצב טעינה ראשוני או טוקן ב-URL - מציג placeholder כדי למנוע פליקר */}
+            {(isInitializing || hasTokenInUrl) ? (
+              <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center">
+                <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+              </div>
+            ) : !user ? (
               <button
                 onClick={handleLoginClick}
                 disabled={isAuthenticating}

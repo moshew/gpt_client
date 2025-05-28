@@ -460,7 +460,8 @@ export function useMessages({
     assistantMessageId: string, 
     chatId: string, 
     imageFiles: File[] = [], 
-    kbName?: string
+    kbName?: string,
+    keepOriginalFiles: boolean = false
   ) => {
     if (eventSourcesRef.current[chatId]) {
       eventSourcesRef.current[chatId].close();
@@ -527,9 +528,23 @@ export function useMessages({
       // Always send the deployment_name
       url.searchParams.append('deployment_name', selectedModel);
       
-      // Add is_code parameter for code analysis mode
+      // Add keepOriginalFiles parameter
+      if (keepOriginalFiles) {
+        url.searchParams.append('keep_original_files', 'true');
+      }
+      
+      // Determine source parameter based on active tools
+      let source: string | null = null;
       if (effectiveToolState.isCodeAnalysisEnabled) {
-        url.searchParams.append('is_code', 'true');
+        source = 'code';
+      } else if (effectiveToolState.isWebSearchEnabled) {
+        source = 'web';
+      } else if (effectiveToolState.isKnowledgeBasesEnabled && kbName) {
+        source = `kb.${kbName}`;
+      }
+      
+      if (source) {
+        url.searchParams.append('source', source);
       }
       
       // Add session ID if available, otherwise add the query directly (only if we have text)
@@ -538,15 +553,6 @@ export function useMessages({
       } else if (userMessage) {
         // Only add query parameter if we have actual text content
         url.searchParams.append('query', userMessage);
-      }
-      
-      // Add optional parameters based on tool state
-      if (effectiveToolState.isWebSearchEnabled) {
-        url.searchParams.append('web_search', 'true');
-      }
-      
-      if (effectiveToolState.isKnowledgeBasesEnabled && kbName) {
-        url.searchParams.append('kb_name', kbName);
       }
       
       // Create and setup the EventSource
@@ -572,8 +578,13 @@ export function useMessages({
   };
 
   // Main submit handler for user input
-  const handleSubmit = async (input: string, files?: File[], imageOptions?: ImageOptions, kbOptions?: KnowledgeBaseOptions) => {
-    if (!user) return;
+  const handleSubmit = async (input: string, files?: File[], imageOptions?: ImageOptions, kbOptions?: KnowledgeBaseOptions, keepOriginalFiles: boolean = false): Promise<boolean> => {
+    // אם המשתמש לא מחובר, בצע login אוטומטי
+    if (!user) {
+      console.log('User not authenticated, redirecting to login...');
+      window.location.href = `${config.apiBaseUrl}/auth/microsoft/login`;
+      return false; // לא מחובר, עשה redirect
+    }
     
     // Check what content we have
     const hasText = input?.trim().length > 0;
@@ -584,12 +595,12 @@ export function useMessages({
     const hasNonImageFiles = files && files.some(file => !file.type.startsWith('image/'));
     
     // Don't submit if there's absolutely no content
-    if (!hasText && !hasFiles && !hasImages) return;
+    if (!hasText && !hasFiles && !hasImages) return false;
     
     // Don't submit if we have non-image files but no text (non-image files require text)
-    if (hasNonImageFiles && !hasText) return;
+    if (hasNonImageFiles && !hasText) return false;
     
-    if (activeChat && (loadingChats[activeChat] || pendingMessagesRef.current[activeChat])) return;
+    if (activeChat && (loadingChats[activeChat] || pendingMessagesRef.current[activeChat])) return false;
   
     setHasStartedResponse(false);
   
@@ -610,7 +621,7 @@ export function useMessages({
         const newChat = await createNewChat();
         if (!newChat) {
           console.error('Failed to create new chat');
-          return;
+          return false;
         }
         
         targetChatId = newChat.id;
@@ -738,7 +749,7 @@ export function useMessages({
               const kbName = effectiveToolState.isKnowledgeBasesEnabled && kbOptions ? kbOptions.kbName : undefined;
               
               // Use the unified function for all query requests
-              await createQueryRequest(userMessage, assistantMessage.id, targetChatId, imageFiles, kbName);
+              await createQueryRequest(userMessage, assistantMessage.id, targetChatId, imageFiles, kbName, keepOriginalFiles);
             }
           } else {
             // Only non-image files uploaded, no query needed - complete the assistant message and stop loading
@@ -780,6 +791,7 @@ export function useMessages({
         [activeChat || '']: false
       }));
     }
+    return true;
   };
 
   // Helper to set up event source handlers
