@@ -6,8 +6,8 @@ interface ChatFilesProps {
   docFiles?: ChatFile[];
   codeFiles?: ChatFile[];
   isCodeAnalysisEnabled?: boolean;
-  keepOriginalFiles?: boolean;
-  onKeepOriginalFilesChange?: (checked: boolean) => void;
+  useOriginalFiles?: boolean;
+  onUseOriginalFilesChange?: (checked: boolean) => void;
 }
 
 interface FileNode {
@@ -18,7 +18,7 @@ interface FileNode {
   path: string;
 }
 
-export function ChatFiles({ docFiles, codeFiles, isCodeAnalysisEnabled = false, keepOriginalFiles, onKeepOriginalFilesChange }: ChatFilesProps) {
+export function ChatFiles({ docFiles, codeFiles, isCodeAnalysisEnabled = false, useOriginalFiles, onUseOriginalFilesChange }: ChatFilesProps) {
   // Always initialize hooks first
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
 
@@ -241,16 +241,18 @@ export function ChatFiles({ docFiles, codeFiles, isCodeAnalysisEnabled = false, 
             </div>
             
             {/* Checkbox for original files - only in document mode */}
-            {!isCodeAnalysisEnabled && onKeepOriginalFilesChange && (
+            {!isCodeAnalysisEnabled && onUseOriginalFilesChange && (
               <div className="pt-1 mt-2 border-t border-gray-100">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={keepOriginalFiles || false}
-                    onChange={(e) => onKeepOriginalFilesChange(e.target.checked)}
-                    className="w-3 h-3 text-blue-600 rounded"
+                    checked={useOriginalFiles || false}
+                    onChange={(e) => {
+                      onUseOriginalFilesChange(e.target.checked);
+                    }}
+                    className="simple-checkbox cursor-pointer"
                   />
-                  <span className="text-sm text-gray-400">Send original (unindexed) files</span>
+                  <span className="text-sm text-gray-400">Use original (unindexed) files</span>
                 </label>
               </div>
             )}

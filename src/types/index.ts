@@ -29,7 +29,9 @@ export interface Chat {
   codeFiles?: ChatFile[];
   createdAt: Date;
   isPlaceholder?: boolean;
+  keepOriginalFiles?: boolean;
 }
+
 export interface ServerChat {
   id: string;
   name: string;
@@ -54,7 +56,10 @@ export interface ChatDataResponse {
   chat_id?: string;
   chat_name?: string;
   messages: ServerMessage[];
-  docs?: ChatFile[];
+  docs?: {
+    keep_original_files?: boolean;
+    files?: ChatFile[];
+  };
   code?: ChatFile[];
   doc_count?: number;
   code_count?: number;

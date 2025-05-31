@@ -334,3 +334,98 @@ pre code {
 .sidebar button[class*="hover:bg-gray-200"]:hover::before {
   background-color: #e5e7eb; /* This is Tailwind's bg-gray-200 */
 }
+
+/* Custom checkbox styling to ensure checkmark is visible */
+.custom-checkbox {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  width: 16px !important;
+  height: 16px !important;
+  border: 2px solid #d1d5db !important;
+  border-radius: 3px !important;
+  background-color: #ffffff !important;
+  cursor: pointer !important;
+  position: relative !important;
+  transition: all 0.2s ease !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.custom-checkbox:checked {
+  background-color: #3b82f6 !important;
+  border-color: #3b82f6 !important;
+}
+
+.custom-checkbox:checked::after {
+  content: '' !important;
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: 10px !important;
+  height: 10px !important;
+  background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='m13.854 3.646-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 9.293l6.646-6.647a.5.5 0 0 1 .708.708z'/%3e%3c/svg%3e") !important;
+  background-size: contain !important;
+  background-repeat: no-repeat !important;
+  background-position: center !important;
+  display: block !important;
+}
+
+.custom-checkbox:hover {
+  border-color: #3b82f6 !important;
+}
+
+.custom-checkbox:disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+}
+
+.custom-checkbox:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5) !important;
+}
+
+/* Simple checkbox with guaranteed checkmark - increased specificity */
+input.simple-checkbox {
+  width: 18px !important;
+  height: 18px !important;
+  border: 2px solid #9ca3af !important;
+  border-radius: 4px !important;
+  background: white !important;
+  cursor: pointer !important;
+  position: relative !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  flex-shrink: 0 !important;
+  margin: 0 !important;
+}
+
+input.simple-checkbox:checked {
+  background: #3b82f6 !important;
+  border-color: #3b82f6 !important;
+}
+
+input.simple-checkbox:checked::before {
+  content: "✓" !important;
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  color: white !important;
+  font-size: 14px !important;
+  font-weight: bold !important;
+  line-height: 1 !important;
+  display: block !important;
+  z-index: 1 !important;
+}
+
+input.simple-checkbox:hover {
+  border-color: #3b82f6 !important;
+}
+
+input.simple-checkbox:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3) !important;
+}

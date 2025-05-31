@@ -20,7 +20,7 @@ interface UseMessagesProps {
   setActiveChat: (chatId: string | null) => void;
   onLoadStart?: () => void;
   onLoadComplete?: () => void;
-  onChatDataLoaded?: (chatId: string, docFiles?: ChatFile[], codeFiles?: ChatFile[]) => void;
+  onChatDataLoaded?: (chatId: string, docFiles?: ChatFile[], codeFiles?: ChatFile[], keepOriginalFiles?: boolean) => void;
 }
 
 export function useMessages({ 
@@ -70,13 +70,14 @@ export function useMessages({
   const messages = activeChat ? (messagesMap[activeChat] || []) : [];
   const isLoading = activeChat ? !!loadingChats[activeChat] : false;
   
-  // Simple upload status for UI display only
-  const [currentUploadStatus, setCurrentUploadStatus] = useState<{
+  // Upload status per chat for UI display only
+  const [uploadStatusMap, setUploadStatusMap] = useState<Record<string, {
     isUploading: boolean;
-    isIndexing: boolean;
-  }>({ isUploading: false, isIndexing: false });
+    procInfo?: string;
+  }>>({});
   
-  const uploadStatus = currentUploadStatus;
+  // Get upload status for the active chat only
+  const uploadStatus = activeChat ? (uploadStatusMap[activeChat] || { isUploading: false }) : { isUploading: false };
 
   // Add selectedModel to the component state
   const [selectedModel, setSelectedModel] = useState<string>(() => {
@@ -250,10 +251,15 @@ export function useMessages({
         }));
       
         // Call the callback with file data if it exists
-        if ((data.docs && data.docs.length > 0) || 
+        if ((data.docs?.files && data.docs.files.length > 0) || 
             (data.code && data.code.length > 0)) {
           if (onChatDataLoaded) {
-            onChatDataLoaded(chatId, data.docs || [], data.code || []);
+            onChatDataLoaded(
+              chatId, 
+              data.docs?.files || [], 
+              data.code || [],
+              data.docs?.keep_original_files || false
+            );
           }
         }
       
@@ -385,7 +391,10 @@ export function useMessages({
     }
 
     // Set uploading status for UI
-    setCurrentUploadStatus({ isUploading: true, isIndexing: false });
+    setUploadStatusMap(prev => ({
+      ...prev,
+      [chatId]: { isUploading: true }
+    }));
 
     try {
       // Get current tool state to determine file type - use explicit state if provided
@@ -422,34 +431,22 @@ export function useMessages({
       // Update files immediately after upload
       updateChatFiles(chatId, docFiles, codeFiles);
 
-      // Only index files if they are documents (not code)
-      if (fileType === "doc") {
-        // Set indexing status for UI
-        setCurrentUploadStatus({ isUploading: false, isIndexing: true });
-        
-        const indexResponse = await fetch(`${config.apiBaseUrl}/index_files/${chatId}`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${user.token}`,
-            'Content-Type': 'application/json'
-          },
-        });
-        
-        if (!indexResponse.ok) {
-          const errorText = await indexResponse.text();
-          console.error('Indexing error response:', errorText);
-          throw new Error(`Failed to index documents: ${indexResponse.status} ${indexResponse.statusText}`);
-        }
-      }
+      // No longer calling index_files - files are used as original unindexed files
       
       // Clear upload status after completion
-      setCurrentUploadStatus({ isUploading: false, isIndexing: false });
+      setUploadStatusMap(prev => ({
+        ...prev,
+        [chatId]: { isUploading: false, procInfo: undefined }
+      }));
       
       return { uploaded: true, docFiles, codeFiles };
     } catch (error) {
       console.error('Error handling files:', error);
       // Clear upload status on error
-      setCurrentUploadStatus({ isUploading: false, isIndexing: false });
+      setUploadStatusMap(prev => ({
+        ...prev,
+        [chatId]: { isUploading: false, procInfo: undefined }
+      }));
       throw error;
     }
   };
@@ -461,7 +458,7 @@ export function useMessages({
     chatId: string, 
     imageFiles: File[] = [], 
     kbName?: string,
-    keepOriginalFiles: boolean = false,
+    useOriginalFiles?: boolean,
     explicitToolState?: ToolState
   ) => {
     if (eventSourcesRef.current[chatId]) {
@@ -529,11 +526,6 @@ export function useMessages({
       // Always send the deployment_name
       url.searchParams.append('deployment_name', selectedModel);
       
-      // Add keepOriginalFiles parameter
-      if (keepOriginalFiles) {
-        url.searchParams.append('keep_original_files', 'true');
-      }
-      
       // Determine source parameter based on active tools
       let source: string | null = null;
       if (effectiveToolState.isCodeAnalysisEnabled) {
@@ -554,6 +546,11 @@ export function useMessages({
       } else if (userMessage) {
         // Only add query parameter if we have actual text content
         url.searchParams.append('query', userMessage);
+      }
+      
+      // Add useOriginalFiles parameter
+      if (useOriginalFiles) {
+        url.searchParams.append('keep_original_files', 'true');
       }
       
       // Create and setup the EventSource
@@ -579,7 +576,7 @@ export function useMessages({
   };
 
   // Main submit handler for user input
-  const handleSubmit = async (input: string, files?: File[], imageOptions?: ImageOptions, kbOptions?: KnowledgeBaseOptions, keepOriginalFiles: boolean = false): Promise<boolean> => {
+  const handleSubmit = async (input: string, files?: File[], imageOptions?: ImageOptions, kbOptions?: KnowledgeBaseOptions, useOriginalFiles?: boolean): Promise<boolean> => {
     // אם המשתמש לא מחובר, בצע login אוטומטי
     if (!user) {
       console.log('User not authenticated, redirecting to login...');
@@ -747,7 +744,7 @@ export function useMessages({
               const kbName = currentToolState.isKnowledgeBasesEnabled && kbOptions ? kbOptions.kbName : undefined;
               
               // Use the unified function for all query requests
-              await createQueryRequest(userMessage, assistantMessage.id, targetChatId, imageFiles, kbName, keepOriginalFiles, currentToolState);
+              await createQueryRequest(userMessage, assistantMessage.id, targetChatId, imageFiles, kbName, useOriginalFiles, currentToolState);
             }
           } else {
             // Only non-image files uploaded, no query needed - complete the assistant message and stop loading
@@ -810,6 +807,12 @@ export function useMessages({
           [chatId]: false
         }));
         
+        // Clear any remaining PROC_INFO status
+        setUploadStatusMap(prev => ({
+          ...prev,
+          [chatId]: { isUploading: false, procInfo: undefined }
+        }));
+        
         updateMessageInChat(chatId, messageId, { status: 'complete' });
         delete pendingMessagesRef.current[chatId];
         
@@ -826,6 +829,22 @@ export function useMessages({
 
       try {
         const content = typeof data === 'string' ? data : '';
+        
+        // Check if this is a PROC_INFO message
+        const procInfoMatch = content.match(/^###PROC_INFO:\s*(.*?)###$/);
+        if (procInfoMatch) {
+          const procInfoContent = procInfoMatch[1].trim();
+          setUploadStatusMap(prev => ({
+            ...prev,
+            [chatId]: {
+              ...prev[chatId],
+              procInfo: procInfoContent || undefined // Set to undefined if empty
+            }
+          }));
+          return; // Don't add PROC_INFO messages to the assistant message
+        }
+        
+        // Regular message content - add to assistant message
         updateMessageInChat(chatId, messageId, prev => prev + content.replace(/\[NEWLINE\]/g, '\n'));
       } catch (error) {
         console.error('Error processing message:', error);
@@ -842,6 +861,12 @@ export function useMessages({
       setLoadingChats(prev => ({
         ...prev,
         [chatId]: false
+      }));
+      
+      // Clear any remaining PROC_INFO status
+      setUploadStatusMap(prev => ({
+        ...prev,
+        [chatId]: { isUploading: false, procInfo: undefined }
       }));
       
       // Only update the message if it hasn't already been completed
@@ -960,7 +985,10 @@ export function useMessages({
         [chatId]: false
       }));
       
-      setCurrentUploadStatus({ isUploading: false, isIndexing: false });
+      setUploadStatusMap(prev => ({
+        ...prev,
+        [chatId]: { isUploading: false, procInfo: undefined }
+      }));
       setHasStartedResponse(false);
 
     } catch (error) {
@@ -970,7 +998,10 @@ export function useMessages({
         ...prev,
         [chatId]: false
       }));
-      setCurrentUploadStatus({ isUploading: false, isIndexing: false });
+      setUploadStatusMap(prev => ({
+        ...prev,
+        [chatId]: { isUploading: false, procInfo: undefined }
+      }));
     }
   };
 
@@ -993,7 +1024,10 @@ export function useMessages({
       [activeChat]: false
     }));
     
-    setCurrentUploadStatus({ isUploading: false, isIndexing: false });
+    setUploadStatusMap(prev => ({
+      ...prev,
+      [activeChat]: { isUploading: false, procInfo: undefined }
+    }));
     setHasStartedResponse(false);
     
     delete pendingMessagesRef.current[activeChat];
@@ -1010,7 +1044,7 @@ export function useMessages({
     pendingMessagesRef.current = {};
     setNewChatIds(new Set());
     setChatsToLoad(new Set());
-    setCurrentUploadStatus({ isUploading: false, isIndexing: false });
+    setUploadStatusMap({});
     const newToolState = toolStatesMap['new'] || {...defaultToolState};
     setToolStatesMap({ 'new': newToolState });
   };

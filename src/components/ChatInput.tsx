@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Send, Plus, Square, Loader2 } from 'lucide-react';
 import { Message } from '../types';
 import { KBControl, ImageControl, FileUploadsControl, ImageOptions, KnowledgeBaseOptions } from './ChatInputControls';
@@ -10,19 +10,20 @@ interface ChatInputProps {
   input: string;
   isLoading: boolean;
   onChange: (value: string) => void;
-  onSubmit: (e: React.FormEvent, files?: File[], imageOptions?: ImageOptions, kbOptions?: KnowledgeBaseOptions, keepOriginalFiles?: boolean) => void;
+  onSubmit: (e: React.FormEvent, files?: File[], imageOptions?: ImageOptions, kbOptions?: KnowledgeBaseOptions, useOriginalFiles?: boolean) => void;
   onStop?: () => void;
   messages: Message[];
   isInitializing?: boolean;
   uploadStatus?: {
     isUploading: boolean;
-    isIndexing: boolean;
+    procInfo?: string; // Add support for PROC_INFO messages
   };
   chatId?: string | null;
   isImageCreatorEnabled?: boolean;
   isKnowledgeBasesEnabled?: boolean;
   registerAddFiles?: (addFilesFunc: (files: File[]) => void) => void;
-  keepOriginalFiles?: boolean;
+  useOriginalFiles?: boolean;
+  onUseOriginalFilesChange?: (checked: boolean) => void;
 }
 
 export function ChatInput({ 
@@ -38,7 +39,8 @@ export function ChatInput({
   isImageCreatorEnabled = false,
   isKnowledgeBasesEnabled = false,
   registerAddFiles,
-  keepOriginalFiles = false
+  useOriginalFiles = false,
+  onUseOriginalFilesChange
 }: ChatInputProps) {
   const showHelpText = messages.length === 0 && !isInitializing;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -53,14 +55,18 @@ export function ChatInput({
   });
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
   const [selectedKb, setSelectedKb] = useState<string>("e-cix");
+  const [localUseOriginalFiles, setLocalUseOriginalFiles] = useState<boolean>(false);
   
   // Determine if there's an upload in progress
-  const isFileProcessing = uploadStatus?.isUploading || uploadStatus?.isIndexing || false;
+  const isFileProcessing = uploadStatus?.isUploading || (uploadStatus?.procInfo !== undefined) || false;
 
   // Check if we have images (either in selectedFiles or as selectedImageFile)
   const hasImages = selectedFiles.some(file => file.type.startsWith('image/')) || 
                    selectedImageFile !== null ||
                    imageOptions.image !== undefined;
+
+  // Check if we have non-image files
+  const hasNonImageFiles = selectedFiles.some(file => !file.type.startsWith('image/'));
 
   // Register the function to handle dropped files
   useEffect(() => {
@@ -72,7 +78,7 @@ export function ChatInput({
   }, [registerAddFiles]);
 
   // Handle clipboard paste events
-  const handlePaste = (e: ClipboardEvent) => {
+  const handlePaste = useCallback((e: ClipboardEvent) => {
     // Skip if we're in image creator mode or knowledge bases mode
     if (isImageCreatorEnabled || isKnowledgeBasesEnabled) return;
     
@@ -101,7 +107,7 @@ export function ChatInput({
       setSelectedFiles(prev => [...prev, ...fileItems]);
       e.preventDefault(); // Prevent default paste behavior if we handled files
     }
-  };
+  }, [isLoading, isImageCreatorEnabled, isKnowledgeBasesEnabled, isFileProcessing]);
 
   // Add paste event listener
   useEffect(() => {
@@ -111,7 +117,7 @@ export function ChatInput({
     return () => {
       document.removeEventListener('paste', handlePaste);
     };
-  }, [isLoading, isImageCreatorEnabled, isKnowledgeBasesEnabled, isFileProcessing]);
+  }, [handlePaste]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -200,7 +206,6 @@ export function ChatInput({
     const hasText = input.trim().length > 0;
     const hasFiles = selectedFiles.length > 0;
     const hasImageContent = hasImages;
-    const hasNonImageFiles = selectedFiles.some(file => !file.type.startsWith('image/'));
     
     // Don't submit if there's absolutely no content
     if (!hasText && !hasFiles && !hasImageContent) return;
@@ -218,32 +223,42 @@ export function ChatInput({
     
     // Prepare options based on active tool
     if (isImageCreatorEnabled) {
-      onSubmit(e, undefined, imageOptions, undefined, keepOriginalFiles);
+      onSubmit(e, undefined, imageOptions, undefined, localUseOriginalFiles);
     } else if (isKnowledgeBasesEnabled) {
       const kbOptions: KnowledgeBaseOptions = {
         kbName: selectedKb
       };
-      onSubmit(e, undefined, undefined, kbOptions, keepOriginalFiles);
+      onSubmit(e, undefined, undefined, kbOptions, localUseOriginalFiles);
     } else {
-      onSubmit(e, files, undefined, undefined, keepOriginalFiles);
+      onSubmit(e, files, undefined, undefined, localUseOriginalFiles);
     }
     
-    // Clear selected files
+    // Clear selected files and reset checkbox
     setSelectedFiles([]);
   };
 
   // Determine the upload status text to display
-  const uploadStatusText = !isImageCreatorEnabled && uploadStatus?.isUploading 
-    ? "The documents are uploading..." 
-    : !isImageCreatorEnabled && uploadStatus?.isIndexing 
-      ? "Indexing uploaded documents..." 
-      : "";
+  const uploadStatusText = (() => {
+    if (isImageCreatorEnabled) return "";
+    
+    // Handle PROC_INFO messages first
+    if (uploadStatus?.procInfo !== undefined) {
+      return uploadStatus.procInfo; // Could be empty string to clear the message
+    }
+    
+    if (uploadStatus?.isUploading) {
+      return "The documents are uploading...";
+    }
+    
+    // No longer showing indexing status since we don't index files anymore
+    
+    return "";
+  })();
 
   // Check what content we have for submit button state
   const hasText = input.trim().length > 0;
   const hasFiles = selectedFiles.length > 0;
   const hasImageContent = hasImages;
-  const hasNonImageFiles = selectedFiles.some(file => !file.type.startsWith('image/'));
 
   // This controls whether the submit button should be disabled
   const isSubmitDisabled = (
@@ -253,6 +268,11 @@ export function ChatInput({
     isLoading ||
     isFileProcessing
   );
+
+  // Sync local state with prop - improved version
+  useEffect(() => {
+    setLocalUseOriginalFiles(useOriginalFiles || false);
+  }, [useOriginalFiles, chatId]);
 
   return (
     <div className={`flex-none bg-gradient-to-t from-white via-white pb-8`}>
@@ -354,6 +374,26 @@ export function ChatInput({
                   onChange={handleKbChange}
                   disabled={isLoading || isFileProcessing}
                 />
+              )}
+              
+              {/* Checkbox for sending original files - only shown when there are non-image files and no processing */}
+              {hasNonImageFiles && !isFileProcessing && !isImageCreatorEnabled && !isKnowledgeBasesEnabled && (
+                <label className="flex items-center gap-2 text-sm text-gray-600 ml-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={localUseOriginalFiles}
+                    onChange={(e) => {
+                      const newValue = e.target.checked;
+                      setLocalUseOriginalFiles(newValue);
+                      if (onUseOriginalFilesChange) {
+                        onUseOriginalFilesChange(newValue);
+                      }
+                    }}
+                    className="simple-checkbox cursor-pointer"
+                    disabled={isLoading}
+                  />
+                  Use original (unindexed) files
+                </label>
               )}
               
               {uploadStatusText && (

@@ -16,8 +16,8 @@ interface SidebarProps {
   onSelectChat: (chatId: string) => void;
   onToolsChange: (toolName: string, enabled: boolean) => void;
   toolStatesMap: Record<string, ToolState>;
-  keepOriginalFilesMap: Record<string, boolean>;
-  onKeepOriginalFilesChange: (chatId: string, checked: boolean) => void;
+  useOriginalFilesMap: Record<string, boolean>;
+  onUseOriginalFilesChange: (chatId: string, checked: boolean) => void;
 }
 
 export function Sidebar({ 
@@ -30,8 +30,8 @@ export function Sidebar({
   onSelectChat, 
   onToolsChange,
   toolStatesMap,
-  keepOriginalFilesMap,
-  onKeepOriginalFilesChange
+  useOriginalFilesMap,
+  onUseOriginalFilesChange
 }: SidebarProps) {
   // Default state for tools (all disabled)
   const defaultToolState = {
@@ -57,8 +57,8 @@ export function Sidebar({
   // Create a stable reference for placeholder IDs
   const placeholderIdsRef = React.useRef<string[]>([]);
 
-  const handleToolToggle = (tool: keyof typeof tools) => {
-    onToolsChange(tool, !tools[tool]);
+  const handleToolToggle = (tool: string | number | symbol) => {
+    onToolsChange(tool as string, !tools[tool as keyof typeof tools]);
   };
 
   // Initialize placeholder IDs if they haven't been created yet
@@ -75,7 +75,6 @@ export function Sidebar({
     id: placeholderIdsRef.current[index],
     title: 'New Chat',
     messages: [],
-    files: [],
     createdAt: new Date(),
     isPlaceholder: true
   }));
@@ -152,8 +151,10 @@ export function Sidebar({
           docFiles={selectedChat.docFiles}
           codeFiles={selectedChat.codeFiles}
           isCodeAnalysisEnabled={tools.codeAnalysis}
-          keepOriginalFiles={keepOriginalFilesMap[selectedChat.id] || false}
-          onKeepOriginalFilesChange={(checked) => onKeepOriginalFilesChange(selectedChat.id, checked)}
+          useOriginalFiles={useOriginalFilesMap[selectedChat.id] || false}
+          onUseOriginalFilesChange={(checked: boolean) => {
+            onUseOriginalFilesChange(selectedChat.id, checked);
+          }}
         />
       )}
     </div>

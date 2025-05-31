@@ -106,18 +106,19 @@ export function useChats(user: User | null) {
       }
   
       const data: ChatDataResponse = await response.json();
-      const docFiles = data.docs || [];
+      const docFiles = data.docs?.files || [];
       const codeFiles = data.code || [];
+      const keepOriginalFiles = data.docs?.keep_original_files || false;
       
-      // Update chat with both doc_files and code_files
-      updateChatFiles(chatId, docFiles, codeFiles);
+      // Update chat with both doc_files and code_files and keep_original_files
+      updateChatFiles(chatId, docFiles, codeFiles, keepOriginalFiles);
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.error(`Error loading files for chat ${chatId}:`, errorMessage);
       
       // Clear any existing files for this chat to prevent stale data
-      updateChatFiles(chatId, [], []);
+      updateChatFiles(chatId, [], [], false);
     } finally {
       setLoadingFiles(prev => ({ ...prev, [chatId]: false }));
     }
@@ -159,7 +160,6 @@ export function useChats(user: User | null) {
         id: serverChat.id,
         title: serverChat.name || 'New Chat',
         messages: [],
-        files: [],
         createdAt: new Date()
       };
 
@@ -219,13 +219,14 @@ export function useChats(user: User | null) {
     }
   };
 
-  const updateChatFiles = (chatId: string, docFiles?: ChatFile[], codeFiles?: ChatFile[]) => {
+  const updateChatFiles = (chatId: string, docFiles?: ChatFile[], codeFiles?: ChatFile[], keepOriginalFiles?: boolean) => {
     setChats(prev => prev.map(chat => {
       if (chat.id === chatId) {
         const updatedChat = {
           ...chat,
           docFiles: docFiles || [],
-          codeFiles: codeFiles || []
+          codeFiles: codeFiles || [],
+          keepOriginalFiles: keepOriginalFiles || false
         };
         
         return updatedChat;
@@ -272,9 +273,10 @@ export function useChats(user: User | null) {
   const handleChatDataLoaded = (
     chatId: string, 
     docFiles?: ChatFile[], 
-    codeFiles?: ChatFile[]
+    codeFiles?: ChatFile[],
+    keepOriginalFiles?: boolean
   ) => {
-    updateChatFiles(chatId, docFiles, codeFiles);
+    updateChatFiles(chatId, docFiles, codeFiles, keepOriginalFiles);
     setChatsWithDataLoaded(prev => {
       const updated = new Set(prev);
       updated.add(chatId);

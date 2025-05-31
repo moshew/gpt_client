@@ -11,6 +11,8 @@ import { useCodeEditor } from './hooks/useCodeEditor';
 import { copyToClipboard } from './utils/clipboard';
 import { ChatFiles } from './components/ChatFiles';
 import { Upload } from 'lucide-react';
+import config from './config';
+import { ChatFile } from './types';
 
 import 'highlight.js/styles/vs.css';
 import './code-highlight.css';
@@ -27,7 +29,7 @@ function App() {
   const [isSwitchingChat, setIsSwitchingChat] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState<File[]>([]);
-  const [keepOriginalFilesMap, setKeepOriginalFilesMap] = useState<Record<string, boolean>>({});
+  const [useOriginalFilesMap, setUseOriginalFilesMap] = useState<Record<string, boolean>>({});
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<{addFiles: (files: File[]) => void} | null>(null);
 
@@ -77,7 +79,16 @@ function App() {
       setIsInitializing(false);
       setIsSwitchingChat(false);
     },
-    onChatDataLoaded: handleChatDataLoaded
+    onChatDataLoaded: (chatId: string, docFiles?: ChatFile[], codeFiles?: ChatFile[], keepOriginalFiles?: boolean) => {
+      handleChatDataLoaded(chatId, docFiles, codeFiles, keepOriginalFiles);
+      // Also update the useOriginalFilesMap with the server value
+      if (keepOriginalFiles !== undefined) {
+        setUseOriginalFilesMap(prev => ({
+          ...prev,
+          [chatId]: keepOriginalFiles
+        }));
+      }
+    }
   });
 
   const {
@@ -125,7 +136,7 @@ function App() {
     }
   };
 
-  const handleFormSubmit = async (e: React.FormEvent, files?: File[], imageOptions?: ImageOptions, kbOptions?: KnowledgeBaseOptions, keepOriginalFiles?: boolean) => {
+  const handleFormSubmit = async (e: React.FormEvent, files?: File[], imageOptions?: ImageOptions, kbOptions?: KnowledgeBaseOptions, useOriginalFiles?: boolean) => {
     e.preventDefault();
     const input = activeChat ? chatInputs[activeChat] : chatInputs['new'];
     
@@ -137,12 +148,9 @@ function App() {
       isCreatingChat
     ) return;
   
-    // Get the keepOriginalFiles value for this specific chat
-    const chatKeepOriginalFiles = activeChat ? (keepOriginalFilesMap[activeChat] || false) : false;
-    
     // Pass the knowledge base options to handleSubmit if they exist
     // handleSubmit will clear the input only if the user is authenticated
-    const success = await handleSubmit(input, files, imageOptions, kbOptions, chatKeepOriginalFiles);
+    const success = await handleSubmit(input, files, imageOptions, kbOptions, useOriginalFiles);
     
     // Clear input only if submission was successful (user was authenticated)
     if (success) {
@@ -282,6 +290,23 @@ function App() {
     localStorage.setItem('selectedModel', selectedModel);
   }, [selectedModel]);
 
+  // Copy useOriginalFiles setting from 'new' to actual chat ID when chat is created
+  useEffect(() => {
+    if (activeChat) {
+      setUseOriginalFilesMap(prev => {
+        // Only update if the current chat doesn't have a value yet but 'new' does
+        if (prev[activeChat] === undefined && prev['new'] !== undefined) {
+          return {
+            ...prev,
+            [activeChat]: prev['new'],
+            'new': false // Reset 'new' to false for the next chat
+          };
+        }
+        return prev;
+      });
+    }
+  }, [activeChat]); // Only depend on activeChat to avoid infinite loop
+
   return (
     <div className="flex h-screen bg-white relative">
       {user && (
@@ -309,11 +334,16 @@ function App() {
             onSelectChat={handleSelectChat}
             onToolsChange={handleToolsChange}
             toolStatesMap={toolStatesMap}
-            keepOriginalFilesMap={keepOriginalFilesMap}
-            onKeepOriginalFilesChange={(chatId: string, value: boolean) => setKeepOriginalFilesMap(prev => ({
-              ...prev,
-              [chatId]: value
-            }))}
+            useOriginalFilesMap={useOriginalFilesMap}
+            onUseOriginalFilesChange={(chatId: string, value: boolean) => {
+              // Update local state for ChatInput synchronization
+              setUseOriginalFilesMap(prev => ({
+                ...prev,
+                [chatId]: value
+              }));
+              // Note: This is only used for UI synchronization
+              // The actual keep_original_files parameter is sent with the query
+            }}
           />
         </>
       )}
@@ -406,7 +436,17 @@ function App() {
                           isImageCreatorEnabled={isImageCreatorEnabled}
                           isKnowledgeBasesEnabled={isKnowledgeBasesEnabled}
                           registerAddFiles={registerChatInputRef}
-                          keepOriginalFiles={activeChat ? (keepOriginalFilesMap[activeChat] || false) : false}
+                          useOriginalFiles={activeChat ? (useOriginalFilesMap[activeChat] || false) : (useOriginalFilesMap['new'] || false)}
+                          onUseOriginalFilesChange={(checked: boolean) => {
+                            const chatId = activeChat || 'new';
+                            setUseOriginalFilesMap(prev => {
+                              const newMap = {
+                                ...prev,
+                                [chatId]: checked
+                              };
+                              return newMap;
+                            });
+                          }}
                         />
                       </div>
                     </div>
@@ -433,7 +473,17 @@ function App() {
                       isImageCreatorEnabled={isImageCreatorEnabled}
                       isKnowledgeBasesEnabled={isKnowledgeBasesEnabled}
                       registerAddFiles={registerChatInputRef}
-                      keepOriginalFiles={activeChat ? (keepOriginalFilesMap[activeChat] || false) : false}
+                      useOriginalFiles={activeChat ? (useOriginalFilesMap[activeChat] || false) : (useOriginalFilesMap['new'] || false)}
+                      onUseOriginalFilesChange={(checked: boolean) => {
+                        const chatId = activeChat || 'new';
+                        setUseOriginalFilesMap(prev => {
+                          const newMap = {
+                            ...prev,
+                            [chatId]: checked
+                          };
+                          return newMap;
+                        });
+                      }}
                     />
                   </div>
                 )}
