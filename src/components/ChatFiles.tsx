@@ -34,14 +34,14 @@ export function ChatFiles({ docFiles, codeFiles, isCodeAnalysisEnabled = false, 
 
   // Check if any file has directory separators
   const hasDirectories = useMemo(() => 
-    filesToDisplay.some(file => 
+    filesToDisplay && filesToDisplay.some(file => 
       file.file_name.includes('/') || file.file_name.includes('\\')
     ), [filesToDisplay]
   );
 
   // Auto-expand top-level folders when files change
   useEffect(() => {
-    if (!hasDirectories || filesToDisplay.length === 0) {
+    if (!hasDirectories || !filesToDisplay || filesToDisplay.length === 0) {
       setExpandedFolders(new Set());
       return;
     }
@@ -219,7 +219,7 @@ export function ChatFiles({ docFiles, codeFiles, isCodeAnalysisEnabled = false, 
 
   return (
     <>
-      {filesToDisplay.length > 0 && (
+      {filesToDisplay && filesToDisplay.length > 0 && (
         <div 
           className={`mt-auto border-t border-gray-200 ${filesToDisplay.length > 5 ? 'max-h-52 overflow-y-auto scrollbar-thin' : ''}`}
           style={filesToDisplay.length > 5 ? {
